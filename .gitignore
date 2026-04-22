@@ -1,0 +1,12 @@
+node_modules/
+dist/
+dist-module/
+.DS_Store
+*.log
+
+# sample databases are tracked; build artifacts are not
+release/*.zip
+
+# editor
+.vscode/
+.idea/

@@ -1,0 +1,38 @@
+[
+  {
+    "label": "原神 (Ultra 同款)",
+    "pkg": "com.miHoYo.Yuanshen",
+    "string": "com.miHoYo.Yuanshen_-1#-1#45,60#47#45#44#42",
+    "route": "mifisrStandard"
+  },
+  {
+    "label": "原神 B 站",
+    "pkg": "com.miHoYo.ys.bilibili",
+    "string": "com.miHoYo.ys.bilibili_-1#-1#45,60#47#45#44#42",
+    "route": "mifisrStandard"
+  },
+  {
+    "label": "原神 小米渠道",
+    "pkg": "com.miHoYo.ys.mi",
+    "string": "com.miHoYo.ys.mi_-1#-1#45,60#47#45#44#42",
+    "route": "mifisrStandard"
+  },
+  {
+    "label": "崩坏：星穹铁道 (Ultra 同款)",
+    "pkg": "com.miHoYo.hkrpg",
+    "string": "com.miHoYo.hkrpg_-1#-1#60#47#45#44#42",
+    "route": "mifisrStandard"
+  },
+  {
+    "label": "鸣潮",
+    "pkg": "com.kurogame.mingchao",
+    "string": "com.kurogame.mingchao_-1#-1#60#47#45#44#42",
+    "route": "mifisrStandard"
+  },
+  {
+    "label": "绝区零",
+    "pkg": "com.miHoYo.Nap",
+    "string": "com.miHoYo.Nap_-1#-1#60#47#45#44#42",
+    "route": "mifisrStandard"
+  }
+]

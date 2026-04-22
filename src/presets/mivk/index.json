@@ -1,0 +1,50 @@
+[
+  {
+    "label": "原神 — misr + mifi + gmem",
+    "channel": "mivk",
+    "entry": {
+      "app": "yuanshen",
+      "app_cmdlines": [
+        "com.miHoYo.Yuanshen",
+        "com.miHoYo.GenshinImpact",
+        "com.miHoYo.ys.mi",
+        "com.miHoYo.ys.bilibili"
+      ],
+      "xrender_config": {
+        "checkMainInfo": "1;1;UnityMain.*",
+        "support_module": ["misr:5", "mifi:4", "vrs:31", "afme:0", "gmem:0"]
+      },
+      "misr": {
+        "backbuffer_size": "1920x883",
+        "manual_sr_size_config": ["1920x882->2608x1200"]
+      },
+      "mifi": {
+        "screen_vu_type": 2,
+        "is_use_mask_image": false,
+        "is_use_multi_sample": true,
+        "original_backbuffer_size": "1920x883"
+      },
+      "gmem": {
+        "image_dimension": "1620x744:37;1920x882:37"
+      }
+    }
+  },
+  {
+    "label": "崩坏：星穹铁道 — misr + drr_static",
+    "channel": "mivk",
+    "entry": {
+      "app": "hkrpg",
+      "app_cmdlines": ["com.miHoYo.hkrpg"],
+      "xrender_config": {
+        "checkMainInfo": "1;1;UnityMain.*",
+        "support_module": ["misr:7", "mifi:0", "drr:7", "gmem:0"]
+      },
+      "misr": {
+        "manual_sr_size_config": ["774x1680->1200x2608"],
+        "force_on_mode_resolution_level": 5
+      },
+      "drr_static": { "config": "2160x994->1680x774" },
+      "gmem": { "image_dimension": "1680x774:37,43;2160x994:37" }
+    }
+  }
+]

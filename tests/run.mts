@@ -1,0 +1,970 @@
+// End-to-end validation harness. Run `npm test`.
+//
+// For each sample DB in the repo root:
+//   1. Open via sql.js.
+//   2. Detect V3 path shape (novatek / qualcomm / mivk / migl).
+//   3. Parse every per-game string encountered with the relevant parser,
+//      serialize back, and assert byte-for-byte equality with the input.
+//   4. Exercise write paths: lock cloud versions, upsert frc entries, add
+//      MIVK entries, edit novatek strings. Re-open the resulting bytes and
+//      confirm the edits stuck.
+//   5. Exercise history store + diff against a filesystem driver.
+
+import { readFileSync } from 'node:fs';
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import initSqlJs from 'sql.js';
+import { fileURLToPath } from 'node:url';
+
+import { parseFrc, serializeFrc, blankFrc, validateFrc } from '../src/parsers/frc-string';
+import {
+  parseMifisr,
+  serializeMifisr,
+  validateMifisr,
+  blankMifisr,
+} from '../src/parsers/mifisr-string';
+import {
+  parseNovatek,
+  serializeNovatek,
+  validateNovatek,
+  setThermal,
+  blankNovatek,
+  decodeSlot,
+  encodeSlotHex,
+} from '../src/parsers/novatek-string';
+import {
+  STRATEGY_PRESETS,
+  upsertPkgPolicy,
+  emptyFisrConfig,
+  isFisrConfig,
+  findGroupForPkg,
+  removePkg,
+} from '../src/parsers/fisr-config';
+import {
+  parseSupportModule,
+  serializeSupportModule,
+  withModule,
+} from '../src/parsers/support-module';
+import {
+  getEntries,
+  setEntries,
+  newMivkEntry,
+  newMiglEntry,
+  findByCmdline,
+  modulesOf,
+  setModules,
+  pruneOrphanedModuleBlocks,
+} from '../src/parsers/mivk-migl';
+import {
+  parseCgameDf,
+  serializeCgameDf,
+  parsePkgFpsMode,
+  serializePkgFpsMode,
+  parsePkgFps,
+  serializePkgFps,
+} from '../src/parsers/per-game';
+import { detectActiveBackend, detectPaths, parseParams, stringifyParams } from '../src/db/schema';
+import {
+  buildRecord,
+  DriverBackedStore,
+  snapshotFromMaps,
+  parseHistoryFilename,
+  nextSeq,
+} from '../src/history/store';
+import { diff, summarizeRecord } from '../src/history/diff';
+import { buildRuleEnvelope, refreshEnvelope } from '../src/history/envelope';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const ROOT = path.resolve(__dirname, '..');
+
+const SAMPLES = [
+  { label: 'Xiaomi 17 Pro Max', smartp: 'tests/Xiaomi 17 Pro Max/SmartP.db', teg: 'tests/Xiaomi 17 Pro Max/teg_config.db', expectedBackend: 'mifisr' as const },
+  { label: 'Xiaomi 17 Ultra', smartp: 'tests/Xiaomi 17 Ultra/SmartP.db', teg: 'tests/Xiaomi 17 Ultra/teg_config.db', expectedBackend: 'mifisr' as const },
+  { label: 'Xiaomi 15', smartp: 'tests/Xiaomi 15/SmartP.db', teg: 'tests/Xiaomi 15/teg_config.db', expectedBackend: 'qualcomm' as const },
+  { label: 'Xiaomi 15 Pro', smartp: 'tests/Xiaomi 15 Pro/SmartP.db', teg: 'tests/Xiaomi 15 Pro/teg_config.db', expectedBackend: 'qualcomm' as const },
+  { label: 'Xiaomi K90 Pro Max', smartp: 'tests/Xiaomi K90 Pro Max/SmartP.db', teg: 'tests/Xiaomi K90 Pro Max/teg_config.db', expectedBackend: 'novatek' as const },
+] as const;
+
+type SamplePaths = (typeof SAMPLES)[number];
+
+const results: { name: string; ok: boolean; info?: string; err?: unknown }[] = [];
+
+async function check(name: string, fn: () => unknown | Promise<unknown>) {
+  try {
+    const info = await fn();
+    results.push({ name, ok: true, info: typeof info === 'string' ? info : undefined });
+    console.log(`  ✓ ${name}${info ? ` — ${info}` : ''}`);
+  } catch (err) {
+    results.push({ name, ok: false, err });
+    console.error(`  ✗ ${name}`);
+    console.error(err);
+  }
+}
+
+async function openDb(bytes: Uint8Array, SQL: Awaited<ReturnType<typeof initSqlJs>>) {
+  return new SQL.Database(bytes);
+}
+
+async function main() {
+  const SQL = await initSqlJs({});
+
+  for (const sample of SAMPLES) {
+    console.log(`\n=== ${sample.label} ===`);
+    await runSample(sample, SQL);
+  }
+
+  await runHistoryStoreTest();
+  await runDiffTest();
+  await runFrcStringTest();
+  await runMifisrStringTest();
+  await runActiveBackendEdgeCases();
+  await runEnvelopeTest();
+
+  const failed = results.filter((r) => !r.ok);
+  console.log(
+    `\nSummary: ${results.length - failed.length} passed / ${failed.length} failed / ${results.length} total`,
+  );
+  if (failed.length) process.exit(1);
+}
+
+async function runSample(sample: SamplePaths, SQL: Awaited<ReturnType<typeof initSqlJs>>) {
+  const smartp = readFileSync(path.join(ROOT, sample.smartp));
+  const teg = readFileSync(path.join(ROOT, sample.teg));
+
+  const dbS = await openDb(new Uint8Array(smartp), SQL);
+  const dbT = await openDb(new Uint8Array(teg), SQL);
+
+  // Extract cloud_config rows
+  const rows = dbS
+    .exec('SELECT config_name, version, params FROM cloud_config')[0]
+    ?.values ?? [];
+  const cloudConfigRows: Record<string, any> = {};
+  for (const row of rows) {
+    const name = String(row[0]);
+    cloudConfigRows[name] = {
+      version: Number(row[1]),
+      params: parseParams(String(row[2] ?? '')),
+    };
+  }
+
+  await check(`${sample.label}: cloud_config has booster_config + common_config`, () => {
+    if (!cloudConfigRows.booster_config) throw new Error('missing booster_config');
+    if (!cloudConfigRows.common_config) throw new Error('missing common_config');
+    return `versions: booster=${cloudConfigRows.booster_config.version}, common=${cloudConfigRows.common_config.version}`;
+  });
+
+  const booster = cloudConfigRows.booster_config.params as any;
+  const gb = booster.game_booster ?? {};
+
+  // Path detection
+  const paths = detectPaths(booster);
+  await check(`${sample.label}: detectPaths returns 5 path statuses`, () => {
+    if (paths.length !== 5) throw new Error(`got ${paths.length}`);
+    return paths.map((p) => `${p.id}=${p.active ? 'ACTIVE' : 'off'}(${p.count})`).join(', ');
+  });
+
+  await check(`${sample.label}: detectActiveBackend === ${sample.expectedBackend}`, () => {
+    const got = detectActiveBackend(booster);
+    if (got !== sample.expectedBackend) {
+      throw new Error(`expected ${sample.expectedBackend}, got ${got}`);
+    }
+    return `backend=${got}`;
+  });
+
+  // --- FRC path ---
+  const frcList: string[] = Array.isArray(gb.frc_game_params) ? gb.frc_game_params : [];
+  if (frcList.length > 0) {
+    await check(`${sample.label}: parse+serialize every frc_game_params entry`, () => {
+      for (const s of frcList) {
+        const parsed = parseFrc(s);
+        const round = serializeFrc(parsed);
+        if (round !== s) throw new Error(`round-trip mismatch:\n  in : ${s}\n  out: ${round}`);
+      }
+      return `${frcList.length} entries round-trip clean`;
+    });
+  }
+
+  // --- MIFISR path (17 series) ---
+  const mifisrList: string[] = Array.isArray(gb.customize_game_params?.game_mifisr_config)
+    ? gb.customize_game_params.game_mifisr_config
+    : [];
+  if (mifisrList.length > 0) {
+    await check(`${sample.label}: parse+serialize every game_mifisr_config entry`, () => {
+      for (const s of mifisrList) {
+        const parsed = parseMifisr(s);
+        const round = serializeMifisr(parsed);
+        if (round !== s) throw new Error(`round-trip mismatch:\n  in : ${s}\n  out: ${round}`);
+        const issues = validateMifisr(parsed).filter((i) => i.severity !== 'warn');
+        if (issues.length > 0) {
+          throw new Error(`validation issues for ${parsed.pkg}: ${issues.map((i) => `${i.field}:${i.message}`).join('; ')}`);
+        }
+      }
+      return `${mifisrList.length} entries round-trip clean`;
+    });
+  }
+
+  // --- Novatek path ---
+  const novatekList: string[] = Array.isArray(gb.novatek_game_params)
+    ? gb.novatek_game_params
+    : [];
+  if (novatekList.length > 0) {
+    await check(`${sample.label}: parse+serialize every novatek_game_params entry`, () => {
+      for (const s of novatekList) {
+        const parsed = parseNovatek(s);
+        const round = serializeNovatek(parsed);
+        if (round !== s) throw new Error(`round-trip mismatch:\n  in : ${s}\n  out: ${round}`);
+        const issues = validateNovatek(parsed);
+        if (issues.length > 0) {
+          throw new Error(`validation issues for ${parsed.pkg}: ${issues.map((i) => `${i.segment}:${i.message}`).join('; ')}`);
+        }
+      }
+      return `${novatekList.length} entries round-trip clean`;
+    });
+
+    // hex slot helpers
+    await check(`${sample.label}: novatek hex slot helpers round-trip`, () => {
+      const sample0 = parseNovatek(novatekList[0]);
+      const slots = sample0.setA.csv.filter((v) => v.startsWith('0x'));
+      for (const v of slots) {
+        const dec = decodeSlot(v);
+        const enc = encodeSlotHex(dec, v.length - 2);
+        if (parseInt(enc, 16) !== dec) throw new Error(`hex round-trip failed for ${v}`);
+      }
+      return `checked ${slots.length} hex slots`;
+    });
+
+    // thermal mutation helper
+    await check(`${sample.label}: setThermal writes all three segments`, () => {
+      const parsed = parseNovatek(novatekList[0]);
+      setThermal(parsed, '95', '93', '93', '91');
+      for (const seg of [parsed.setA, parsed.setGpu, parsed.setB]) {
+        if (seg.t1 !== '95' || seg.t2 !== '93' || seg.t3 !== '93' || seg.t4 !== '91') {
+          throw new Error('setThermal did not update all segments');
+        }
+      }
+    });
+  }
+
+  // --- FISR config ---
+  if (gb.fisr_config && isFisrConfig(gb.fisr_config)) {
+    await check(`${sample.label}: fisr_config groups have valid shape`, () => {
+      let groupCount = 0;
+      let policyCount = 0;
+      for (const g of gb.fisr_config.enhance_config) {
+        groupCount++;
+        if (!Array.isArray(g.game_list) || g.game_list.length === 0) {
+          throw new Error(`group with empty game_list`);
+        }
+        for (const p of g.enhance_policy_config) {
+          policyCount++;
+          if (!p.feature || !p.strategy) throw new Error('policy missing feature/strategy');
+        }
+      }
+      return `${groupCount} groups / ${policyCount} policies`;
+    });
+  }
+
+  // --- MIVK path ---
+  const mivkApps = gb.mivk_settings?.app_params ?? [];
+  if (mivkApps.length > 0) {
+    await check(`${sample.label}: MIVK support_module round-trip`, () => {
+      let checked = 0;
+      for (const app of mivkApps) {
+        const original = app.xrender_config?.support_module;
+        if (!Array.isArray(original)) continue;
+        const mods = parseSupportModule(original);
+        const round = serializeSupportModule(mods);
+        if (JSON.stringify(round) !== JSON.stringify(original)) {
+          throw new Error(`mismatch on ${app.app}:\n  in : ${JSON.stringify(original)}\n  out: ${JSON.stringify(round)}`);
+        }
+        checked++;
+      }
+      return `${checked} apps round-trip`;
+    });
+
+    await check(`${sample.label}: MIVK withModule append/remove`, () => {
+      const app = mivkApps[0];
+      let mods = modulesOf(app);
+      const before = mods.length;
+      mods = withModule(mods, '__test__', 7);
+      if (!mods.some((m) => m.name === '__test__' && m.level === 7)) {
+        throw new Error('append failed');
+      }
+      mods = withModule(mods, '__test__', null);
+      if (mods.length !== before) throw new Error('remove failed');
+    });
+  }
+
+  // --- MIGL path ---
+  const miglGames = gb.migl_settings?.game_params ?? [];
+  if (miglGames.length > 0) {
+    await check(`${sample.label}: MIGL support_module round-trip`, () => {
+      let checked = 0;
+      for (const game of miglGames) {
+        const original = game.xrender_config?.support_module;
+        if (!Array.isArray(original)) continue;
+        const mods = parseSupportModule(original);
+        const round = serializeSupportModule(mods);
+        if (JSON.stringify(round) !== JSON.stringify(original)) {
+          throw new Error(`mismatch on ${game.game}:\n  ${JSON.stringify(original)} vs ${JSON.stringify(round)}`);
+        }
+        checked++;
+      }
+      return `${checked} games round-trip`;
+    });
+  }
+
+  // --- per-game secondary formats ---
+  const mqs: string[] = Array.isArray(gb.mqs_enhance_list) ? gb.mqs_enhance_list : [];
+  if (mqs.length > 0) {
+    await check(`${sample.label}: mqs_enhance_list round-trip`, () => {
+      for (const s of mqs) {
+        const round = serializePkgFpsMode(parsePkgFpsMode(s));
+        if (round !== s) throw new Error(`mqs mismatch ${s} vs ${round}`);
+      }
+      return `${mqs.length} entries`;
+    });
+  }
+
+  const cgame: string[] = Array.isArray(gb.cgame_df) ? gb.cgame_df : [];
+  if (cgame.length > 0) {
+    await check(`${sample.label}: cgame_df round-trip`, () => {
+      for (const s of cgame) {
+        const round = serializeCgameDf(parseCgameDf(s));
+        if (round !== s) throw new Error(`cgame_df mismatch ${s} vs ${round}`);
+      }
+      return `${cgame.length} entries`;
+    });
+  }
+
+  const highfps: string[] = Array.isArray(gb.support_highfps_app) ? gb.support_highfps_app : [];
+  if (highfps.length > 0) {
+    await check(`${sample.label}: support_highfps_app round-trip`, () => {
+      for (const s of highfps) {
+        const round = serializePkgFps(parsePkgFps(s));
+        if (round !== s) throw new Error(`highfps mismatch ${s} vs ${round}`);
+      }
+      return `${highfps.length} entries`;
+    });
+  }
+
+  const gexLimit: string[] = Array.isArray(gb.novatek_gex_fps_limit) ? gb.novatek_gex_fps_limit : [];
+  if (gexLimit.length > 0) {
+    await check(`${sample.label}: novatek_gex_fps_limit round-trip`, () => {
+      for (const s of gexLimit) {
+        const round = serializePkgFps(parsePkgFps(s));
+        if (round !== s) throw new Error(`gex mismatch ${s} vs ${round}`);
+      }
+      return `${gexLimit.length} entries`;
+    });
+  }
+
+  // --- Cloud lock: bump versions to 2099xxxxxx ---
+  await check(`${sample.label}: cloud-lock rewrites versions`, () => {
+    const copyParams = JSON.parse(JSON.stringify(booster));
+    const oldVersion = Number(copyParams.header?.version ?? 0);
+    const newVersion = lockVersion(oldVersion);
+    copyParams.header.version = String(newVersion);
+
+    dbS.run(`UPDATE cloud_config SET params = ?, version = ? WHERE config_name = 'booster_config'`, [
+      JSON.stringify(copyParams),
+      newVersion,
+    ]);
+    // round-trip: export DB bytes, re-open, confirm value
+    const bytes = dbS.export();
+    const reopen = new SQL.Database(bytes);
+    const back = reopen
+      .exec(`SELECT version, params FROM cloud_config WHERE config_name='booster_config'`)[0];
+    reopen.close();
+    const v = Number(back.values[0][0]);
+    const h = JSON.parse(String(back.values[0][1])).header.version;
+    if (v !== newVersion) throw new Error(`version not persisted: ${v} vs ${newVersion}`);
+    if (h !== String(newVersion)) throw new Error(`header.version not persisted: ${h}`);
+    return `version ${oldVersion} -> ${newVersion}`;
+  });
+
+  // --- FRC upsert: the Xiaomi-17 'add from scratch' scenario ---
+  await check(`${sample.label}: upsert a new frc_game_params + fisr route`, () => {
+    const copyParams = JSON.parse(JSON.stringify(booster));
+    const gb2 = (copyParams.game_booster ??= {});
+    if (!Array.isArray(gb2.frc_game_params)) gb2.frc_game_params = [];
+    const beforeCount = gb2.frc_game_params.length;
+
+    const newParams = blankFrc('com.example.testgame');
+    newParams.minFps = 45;
+    newParams.targetFps = 90;
+    newParams.srcFps = 30;
+    newParams.modeFps = 60;
+    newParams.resolution = '0x0';
+    const serialized = serializeFrc(newParams);
+    const validationIssues = validateFrc(newParams, [60, 90, 120]);
+    if (validationIssues.length) {
+      throw new Error('validation unexpectedly flagged: ' + JSON.stringify(validationIssues));
+    }
+    gb2.frc_game_params.push(serialized);
+
+    // upsert fisr config
+    if (!gb2.fisr_config) gb2.fisr_config = emptyFisrConfig();
+    upsertPkgPolicy(
+      gb2.fisr_config,
+      newParams.pkg,
+      STRATEGY_PRESETS.qualcommStandard('60#90'),
+      { switch_default_status: '0#0' },
+    );
+
+    // also add to whitelist keys
+    if (!Array.isArray(gb2.support_resolution_enhance_config)) {
+      gb2.support_resolution_enhance_config = [];
+    }
+    gb2.support_resolution_enhance_config.push({ pkg: newParams.pkg, isSupportHotSwap: false });
+
+    // round-trip through sqlite
+    dbS.run(`UPDATE cloud_config SET params = ? WHERE config_name = 'booster_config'`, [
+      JSON.stringify(copyParams),
+    ]);
+    const bytes = dbS.export();
+    const reopen = new SQL.Database(bytes);
+    const back = reopen
+      .exec(`SELECT params FROM cloud_config WHERE config_name='booster_config'`)[0];
+    reopen.close();
+    const backParams = JSON.parse(String(back.values[0][0]));
+    const frc = backParams.game_booster.frc_game_params;
+    if (frc.length !== beforeCount + 1) throw new Error('entry count mismatch');
+    const added = frc[frc.length - 1];
+    if (added !== serialized) throw new Error(`persisted string mismatch:\n  ${added}\n  ${serialized}`);
+    const group = findGroupForPkg(backParams.game_booster.fisr_config, newParams.pkg);
+    if (!group) throw new Error('fisr_config group missing');
+    if (group.enhance_policy_config.length !== 4) throw new Error('policy count mismatch');
+    return `added ${newParams.pkg} => ${serialized}`;
+  });
+
+  // --- MIVK new entry: the small-app path ---
+  await check(`${sample.label}: add MIVK entry with module stack`, () => {
+    const copyParams = JSON.parse(JSON.stringify(booster));
+    const gb2 = (copyParams.game_booster ??= {});
+    if (!gb2.mivk_settings) gb2.mivk_settings = { enable: true, app_params: [] };
+
+    const entries = getEntries(gb2, 'mivk');
+    const beforeCount = entries.length;
+
+    const newEntry = newMivkEntry('testapp', ['com.example.testapp']);
+    let mods = modulesOf(newEntry);
+    mods = withModule(mods, 'misr', 5);
+    mods = withModule(mods, 'mifi', 4);
+    mods = withModule(mods, 'drr', 7);
+    setModules(newEntry, mods);
+    (newEntry as any).misr = {
+      backbuffer_size: '1920x883',
+      manual_sr_size_config: ['1920x882->2608x1200'],
+    };
+    (newEntry as any).mifi = {
+      screen_vu_type: 2,
+      is_use_mask_image: false,
+      is_use_multi_sample: true,
+      original_backbuffer_size: '1920x883',
+    };
+    setEntries(gb2, 'mivk', [...entries, newEntry]);
+
+    dbS.run(`UPDATE cloud_config SET params = ? WHERE config_name = 'booster_config'`, [
+      JSON.stringify(copyParams),
+    ]);
+    const bytes = dbS.export();
+    const reopen = new SQL.Database(bytes);
+    const back = reopen
+      .exec(`SELECT params FROM cloud_config WHERE config_name='booster_config'`)[0];
+    reopen.close();
+    const backParams = JSON.parse(String(back.values[0][0]));
+    const apps = backParams.game_booster.mivk_settings.app_params;
+    if (apps.length !== beforeCount + 1) throw new Error('mivk entry not appended');
+    const found = findByCmdline(apps, 'mivk', 'com.example.testapp');
+    if (!found) throw new Error('new cmdline not found after round-trip');
+    const foundMods = modulesOf(found);
+    if (!foundMods.some((m) => m.name === 'misr' && m.level === 5)) {
+      throw new Error('misr level 5 not persisted');
+    }
+    return `added mivk entry; support_module=${JSON.stringify(found.xrender_config.support_module)}`;
+  });
+
+  // --- pruneOrphanedModuleBlocks ---
+  await check(`${sample.label}: pruneOrphanedModuleBlocks strips removed module keys`, () => {
+    const copyParams = JSON.parse(JSON.stringify(booster));
+    const gb2 = copyParams.game_booster;
+    if (!gb2?.mivk_settings?.app_params?.length) return 'no mivk entries; skipped';
+    const entry = JSON.parse(JSON.stringify(gb2.mivk_settings.app_params[0]));
+    entry.__test_misr_block__ = undefined;
+    (entry as any).misr = { marker: 1 };
+    setModules(entry, []);
+    pruneOrphanedModuleBlocks(entry);
+    if ((entry as any).misr !== undefined) throw new Error('misr block not pruned');
+  });
+
+  // --- Novatek edit + round-trip ---
+  if (novatekList.length > 0) {
+    await check(`${sample.label}: novatek edit round-trip`, () => {
+      const copyParams = JSON.parse(JSON.stringify(booster));
+      const gb2 = copyParams.game_booster;
+      const parsed = parseNovatek(gb2.novatek_game_params[0]);
+      const before = serializeNovatek(parsed);
+      setThermal(parsed, '95', '93', '93', '91');
+      const edited = serializeNovatek(parsed);
+      if (edited === before) throw new Error('edit had no effect');
+      gb2.novatek_game_params[0] = edited;
+
+      dbS.run(`UPDATE cloud_config SET params = ? WHERE config_name = 'booster_config'`, [
+        JSON.stringify(copyParams),
+      ]);
+      const reopen = new SQL.Database(dbS.export());
+      const back = reopen
+        .exec(`SELECT params FROM cloud_config WHERE config_name='booster_config'`)[0];
+      reopen.close();
+      const backParams = JSON.parse(String(back.values[0][0]));
+      if (backParams.game_booster.novatek_game_params[0] !== edited) {
+        throw new Error('novatek edit not persisted');
+      }
+      return `thermal locked to 95/93/93/91`;
+    });
+  }
+
+  // --- rules sync: touch rule_version on both rows ---
+  await check(`${sample.label}: rules sync for booster_config`, () => {
+    const list = dbT.exec(`SELECT rule_module, rule_version FROM rules`)[0];
+    const beforeCount = list ? list.values.length : 0;
+    if (beforeCount === 0) return `no rules present (redmi / fresh device)`;
+    const targetVersion = 20990000000000;
+    dbT.run(`UPDATE rules SET rule_version = ? WHERE rule_module = ?`, [
+      targetVersion,
+      'booster_config',
+    ]);
+    const reopen = new SQL.Database(dbT.export());
+    const back = reopen
+      .exec(`SELECT rule_version FROM rules WHERE rule_module='booster_config'`)[0];
+    reopen.close();
+    for (const row of back?.values ?? []) {
+      if (Number(row[0]) !== targetVersion) {
+        throw new Error(`version not persisted: ${row[0]}`);
+      }
+    }
+    return `synced ${back?.values.length} booster_config rows`;
+  });
+
+  // --- removePkg inverse ---
+  if (gb.fisr_config && isFisrConfig(gb.fisr_config)) {
+    await check(`${sample.label}: removePkg drops the package from every group`, () => {
+      const cfg = JSON.parse(JSON.stringify(gb.fisr_config));
+      const anyPkg = cfg.enhance_config[0]?.game_list[0];
+      if (!anyPkg) return 'no pkg to remove';
+      removePkg(cfg, anyPkg);
+      for (const g of cfg.enhance_config) {
+        if (g.game_list.includes(anyPkg)) throw new Error(`${anyPkg} still present`);
+      }
+      return `${anyPkg} removed cleanly`;
+    });
+  }
+
+  // --- End-to-end: FRC upsert + envelope sync into teg_config.rules ---
+  await check(`${sample.label}: FRC upsert propagates into teg_config.rules.rule_content`, () => {
+    const ccParams = JSON.parse(JSON.stringify(booster));
+    const gb2 = (ccParams.game_booster ??= {});
+    if (!Array.isArray(gb2.frc_game_params)) gb2.frc_game_params = [];
+    const addPkg = 'com.example.e2e';
+    const addStr = serializeFrc({ ...blankFrc(addPkg), resolution: '0x0' });
+    gb2.frc_game_params.push(addStr);
+    if (!gb2.fisr_config) gb2.fisr_config = emptyFisrConfig();
+    upsertPkgPolicy(gb2.fisr_config, addPkg, STRATEGY_PRESETS.qualcommStandard());
+
+    // Persist SmartP.db
+    dbS.run(`UPDATE cloud_config SET params = ? WHERE config_name='booster_config'`, [
+      JSON.stringify(ccParams),
+    ]);
+
+    // Inspect rules table to find a booster_config row to sync
+    const ruleRows = dbT.exec(
+      `SELECT _id, rule_version, rule_content FROM rules WHERE rule_module='booster_config'`,
+    )[0];
+    if (!ruleRows || ruleRows.values.length === 0) {
+      return 'no booster_config rules on this device; envelope sync skipped';
+    }
+    const first = ruleRows.values[0];
+    const existing = JSON.parse(String(first[2]));
+    const updatedVersion = Number(first[1]);
+    const fresh = refreshEnvelope(existing, ccParams, updatedVersion);
+    dbT.run(`UPDATE rules SET rule_content = ?, rule_version = ? WHERE _id = ?`, [
+      JSON.stringify(fresh),
+      updatedVersion,
+      Number(first[0]),
+    ]);
+
+    // re-open both DBs, verify the new frc string is visible from BOTH sides
+    const reopenS = new SQL.Database(dbS.export());
+    const smartpBack = JSON.parse(
+      String(
+        reopenS.exec(`SELECT params FROM cloud_config WHERE config_name='booster_config'`)[0]
+          .values[0][0],
+      ),
+    );
+    reopenS.close();
+    const reopenT = new SQL.Database(dbT.export());
+    const tegBack = JSON.parse(
+      String(
+        reopenT.exec(
+          `SELECT rule_content FROM rules WHERE rule_module='booster_config' AND _id=${Number(first[0])}`,
+        )[0].values[0][0],
+      ),
+    );
+    reopenT.close();
+
+    if (!smartpBack.game_booster.frc_game_params.includes(addStr)) {
+      throw new Error('SmartP.db missing new FRC entry after round-trip');
+    }
+    if (!tegBack.params.game_booster.frc_game_params.includes(addStr)) {
+      throw new Error('teg_config.db mirror missing new FRC entry');
+    }
+    return `${addPkg} written to both DBs consistently`;
+  });
+
+  dbS.close();
+  dbT.close();
+}
+
+function lockVersion(current: number): number {
+  // Rewrite the leading 4 digits to "2099". Joyose stores version as a 12-ish
+  // digit decimal, e.g. 2025092351. Replace only the year.
+  const s = String(current);
+  if (s.length < 4) return 209900000000;
+  return Number(`2099${s.slice(4)}`);
+}
+
+async function runHistoryStoreTest() {
+  console.log('\n=== history store ===');
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'joyose-hist-'));
+  const driver = {
+    async listNames() {
+      try {
+        return await fs.readdir(tmp);
+      } catch {
+        return [];
+      }
+    },
+    async readText(name: string) {
+      return fs.readFile(path.join(tmp, name), 'utf-8');
+    },
+    async writeText(name: string, content: string) {
+      await fs.writeFile(path.join(tmp, name), content, 'utf-8');
+    },
+    async remove(name: string) {
+      await fs.rm(path.join(tmp, name));
+    },
+  };
+  const store = new DriverBackedStore(driver);
+
+  await check('history: parseHistoryFilename', () => {
+    const m = parseHistoryFilename('1712345678-3.json');
+    if (!m || m.timestamp !== 1712345678 || m.seq !== 3) throw new Error('parse failed');
+    if (parseHistoryFilename('garbage.json') !== null) throw new Error('accepted garbage');
+  });
+
+  const s1 = snapshotFromMaps({
+    cloudConfig: { booster_config: { v: 1, x: [1, 2, 3] } },
+    rulesByModule: { booster_config: [{ v: 1 }] },
+  });
+  const s2 = snapshotFromMaps({
+    cloudConfig: { booster_config: { v: 2, x: [1, 9, 3], y: 'new' } },
+    rulesByModule: { booster_config: [{ v: 2 }] },
+  });
+
+  const rec1 = buildRecord({ seq: 1, before: s1, after: s2, note: 'first edit' });
+  await check('history: append + list + read', async () => {
+    const n1 = await store.append(rec1);
+    if (!n1.endsWith('-1.json')) throw new Error(`bad filename: ${n1}`);
+    const list = await store.list();
+    if (list.length !== 1 || list[0].seq !== 1) throw new Error('list wrong');
+    const read = await store.read(n1);
+    if (read.seq !== 1 || read.note !== 'first edit') throw new Error('read mismatch');
+    if (!Array.isArray(read.diff_summary) || read.diff_summary.length === 0) {
+      throw new Error('diff_summary empty');
+    }
+  });
+
+  await check('history: nextSeq bumps past existing', async () => {
+    const existing = await driver.listNames();
+    const next = nextSeq(existing);
+    if (next !== 2) throw new Error(`expected 2, got ${next}`);
+  });
+
+  const rec2 = buildRecord({ seq: 2, before: s2, after: s1, note: 'rollback', source: 'revert' });
+  await check('history: multiple records sort by time+seq desc', async () => {
+    await store.append(rec2);
+    const list = await store.list();
+    if (list[0].seq !== 2 || list[1].seq !== 1) throw new Error('sort order wrong');
+  });
+
+  await check('history: clear keeps N newest', async () => {
+    for (let i = 3; i < 8; i++) {
+      await store.append(
+        buildRecord({ seq: i, before: s1, after: s2, note: `edit ${i}`, timestamp: 1_700_000_000 + i }),
+      );
+    }
+    const removed = await store.clear(3);
+    const list = await store.list();
+    if (list.length !== 3) throw new Error(`expected 3, got ${list.length}`);
+    if (removed + 3 !== 7) throw new Error(`removed+kept should be 7, got ${removed}+3`);
+  });
+
+  await fs.rm(tmp, { recursive: true, force: true });
+}
+
+async function runDiffTest() {
+  console.log('\n=== json diff ===');
+  const a = { x: 1, y: { z: [1, 2, 3] }, kill: true };
+  const b = { x: 2, y: { z: [1, 9, 3] }, added: 'new' };
+  const records = diff(a, b);
+  await check('diff: finds added / removed / changed', () => {
+    const kinds = new Set(records.map((r) => r.kind));
+    if (!kinds.has('added')) throw new Error('missing added');
+    if (!kinds.has('removed')) throw new Error('missing removed');
+    if (!kinds.has('changed')) throw new Error('missing changed');
+  });
+  await check('diff: summarizeRecord formats compactly', () => {
+    const lines = records.map((r) => summarizeRecord(r));
+    if (lines.some((l) => l.length > 200)) throw new Error('line too long');
+  });
+  await check('diff: empty when equal', () => {
+    const r = diff({ a: 1 }, { a: 1 });
+    if (r.length !== 0) throw new Error('should be empty');
+  });
+}
+
+async function runFrcStringTest() {
+  console.log('\n=== frc validation edge cases ===');
+  await check('frc: rejects 11-field string', () => {
+    try {
+      parseFrc('pkg_1_2_3_4_5_6_7_8_9_10');
+    } catch {
+      return 'correctly rejected';
+    }
+    throw new Error('should have thrown');
+  });
+  await check('frc: validateFrc flags min < src+1', () => {
+    const p = blankFrc('com.x');
+    p.minFps = 30;
+    p.srcFps = 60;
+    const issues = validateFrc(p, [60, 90]);
+    if (!issues.some((i) => i.field === 'relation')) throw new Error('expected relation issue');
+  });
+  await check('frc: serialize preserves "46.5" temperature', () => {
+    const p = blankFrc('com.x');
+    p.t2 = 46.5;
+    const s = serializeFrc(p);
+    if (!s.includes('_46.5_')) throw new Error(`expected 46.5 in output: ${s}`);
+  });
+  await check('frc: rejects package name with underscore', () => {
+    const p = blankFrc('has_underscore');
+    try {
+      serializeFrc(p);
+    } catch {
+      return 'rejected';
+    }
+    throw new Error('should have rejected');
+  });
+}
+
+async function runMifisrStringTest() {
+  console.log('\n=== mifisr validation edge cases ===');
+
+  await check('mifisr: parse Ultra原神 canonical form', () => {
+    const p = parseMifisr('com.miHoYo.Yuanshen_-1#-1#45,60#47#45#44#42');
+    if (p.pkg !== 'com.miHoYo.Yuanshen') throw new Error('pkg');
+    if (p.minFps !== -1) throw new Error('minFps');
+    if (p.targetFps !== -1) throw new Error('targetFps');
+    if (JSON.stringify(p.srcFps) !== JSON.stringify([45, 60])) throw new Error('srcFps');
+    if (p.t1 !== 47 || p.t2 !== 45 || p.t3 !== 44 || p.t4 !== 42) throw new Error('thermal');
+  });
+
+  await check('mifisr: parse Ultra星铁 single-srcFps form', () => {
+    const p = parseMifisr('com.miHoYo.hkrpg_-1#-1#60#47#45#44#42');
+    if (JSON.stringify(p.srcFps) !== JSON.stringify([60])) throw new Error(`srcFps ${p.srcFps}`);
+  });
+
+  await check('mifisr: rejects pkg with underscore', () => {
+    try {
+      serializeMifisr({ ...blankMifisr('has_under'), srcFps: [60] });
+    } catch {
+      return 'rejected';
+    }
+    throw new Error('should have rejected');
+  });
+
+  await check('mifisr: rejects 6-field body', () => {
+    try {
+      parseMifisr('pkg_-1#-1#60#47#45#44'); // missing T4
+    } catch {
+      return 'rejected';
+    }
+    throw new Error('should have thrown');
+  });
+
+  await check('mifisr: rejects whitespace in srcFps list', () => {
+    try {
+      parseMifisr('pkg_-1#-1#45, 60#47#45#44#42');
+    } catch {
+      return 'rejected';
+    }
+    throw new Error('should have thrown');
+  });
+
+  await check('mifisr: validateMifisr flags target < min when both explicit', () => {
+    const p = blankMifisr('com.x');
+    p.minFps = 90;
+    p.targetFps = 60;
+    const issues = validateMifisr(p).filter((i) => i.severity !== 'warn');
+    if (!issues.some((i) => i.field === 'relation')) throw new Error('expected relation issue');
+  });
+
+  await check('mifisr: validateMifisr warns on srcFps < 45 (not error)', () => {
+    const p = blankMifisr('com.x');
+    p.srcFps = [30];
+    const issues = validateMifisr(p);
+    if (!issues.some((i) => i.field === 'srcFps' && i.severity === 'warn')) {
+      throw new Error('expected warn on srcFps=30');
+    }
+    if (issues.some((i) => i.field === 'srcFps' && i.severity !== 'warn')) {
+      throw new Error('srcFps=30 should not be an error');
+    }
+  });
+
+  await check('mifisr: validateMifisr flags T4 > T1 (non-monotonic)', () => {
+    const p = blankMifisr('com.x');
+    p.t1 = 40;
+    p.t4 = 80;
+    const issues = validateMifisr(p).filter((i) => i.severity !== 'warn');
+    if (!issues.some((i) => i.field === 'relation')) throw new Error('expected relation issue');
+  });
+
+  await check('mifisr: mifisrStandard preset returns triple FI/SR/FISR policies with correct strategies', () => {
+    const policy = STRATEGY_PRESETS.mifisrStandard();
+    if (policy.length !== 3) throw new Error(`expected 3 policies, got ${policy.length}`);
+    // All three bind to MIFISR — matches Xiaomi 17 Ultra cloud drops verbatim.
+    // MIFISR's a() is dynamic (k(pkg,status) re-calibrates it per call), so a
+    // single MIFISR instance can handle FI (1) / SR (2) / FISR (4) alike.
+    const want = [
+      ['FI', 'MIFISR'],
+      ['SR', 'MIFISR'],
+      ['FISR', 'MIFISR'],
+    ];
+    for (let i = 0; i < 3; i++) {
+      if (policy[i].feature !== want[i][0]) {
+        throw new Error(`policy[${i}].feature=${policy[i].feature}, want ${want[i][0]}`);
+      }
+      if (policy[i].strategy !== want[i][1]) {
+        throw new Error(`policy[${i}].strategy=${policy[i].strategy}, want ${want[i][1]}`);
+      }
+      if ((policy[i] as any).support_game_mode !== '1#1') {
+        throw new Error(`policy[${i}] default support_game_mode should be 1#1`);
+      }
+    }
+  });
+
+  await check('mifisr: mifisrStandard upsert produces all three FI/SR/FISR routes', () => {
+    const cfg = emptyFisrConfig();
+    upsertPkgPolicy(cfg, 'com.test.mifisr', STRATEGY_PRESETS.mifisrStandard());
+    const group = findGroupForPkg(cfg, 'com.test.mifisr');
+    if (!group) throw new Error('group missing');
+    if (group.enhance_policy_config.length !== 3) {
+      throw new Error(`policy count ${group.enhance_policy_config.length}, expected 3`);
+    }
+    const pairs = group.enhance_policy_config
+      .map((p) => `${p.feature}:${p.strategy}`)
+      .sort()
+      .join(',');
+    const want = ['FI:MIFISR', 'FISR:MIFISR', 'SR:MIFISR'].sort().join(',');
+    if (pairs !== want) throw new Error(`pairs=${pairs}, want ${want}`);
+  });
+}
+
+async function runActiveBackendEdgeCases() {
+  console.log('\n=== detectActiveBackend edge cases ===');
+
+  await check('detectActiveBackend: empty booster -> null', () => {
+    if (detectActiveBackend({} as any) !== null) throw new Error('should be null');
+  });
+
+  await check('detectActiveBackend: fisr_mqs_v2 alone -> mifisr', () => {
+    const got = detectActiveBackend({ game_booster: { fisr_mqs_v2: true } } as any);
+    if (got !== 'mifisr') throw new Error(`expected mifisr, got ${got}`);
+  });
+
+  await check('detectActiveBackend: key_mivk_gputuner_select_enable alone -> null', () => {
+    // Intentional non-signal: must not trigger MIFISR classification.
+    const got = detectActiveBackend({
+      game_booster: { key_mivk_gputuner_select_enable: true },
+    } as any);
+    if (got !== null) throw new Error(`expected null, got ${got}`);
+  });
+
+  await check('detectActiveBackend: Novatek data takes priority over MIFISR flag', () => {
+    const got = detectActiveBackend({
+      game_booster: {
+        fisr_mqs_v2: true,
+        novatek_game_params: ['com.x'],
+      },
+    } as any);
+    if (got !== 'novatek') throw new Error(`expected novatek, got ${got}`);
+  });
+
+  await check('detectActiveBackend: MIFISR takes priority over Qualcomm legacy', () => {
+    const got = detectActiveBackend({
+      game_booster: {
+        fisr_mqs_v2: true,
+        frc_game_params: ['com.x_45_90_30_60_47_46_43_41_0x0_1_1'],
+      },
+    } as any);
+    if (got !== 'mifisr') throw new Error(`expected mifisr, got ${got}`);
+  });
+
+  await check('detectActiveBackend: frc_game_params alone -> qualcomm', () => {
+    const got = detectActiveBackend({
+      game_booster: { frc_game_params: ['com.x_45_90_30_60_47_46_43_41_0x0_1_1'] },
+    } as any);
+    if (got !== 'qualcomm') throw new Error(`expected qualcomm, got ${got}`);
+  });
+}
+
+async function runEnvelopeTest() {
+  console.log('\n=== rule envelope sync ===');
+  await check('envelope: buildRuleEnvelope produces expected shape', () => {
+    const env = buildRuleEnvelope('booster_config', { foo: 1 }, 20250101);
+    if (env.config_name !== 'booster_config') throw new Error('config_name wrong');
+    if (env.group_name !== 'booster_config') throw new Error('group_name wrong');
+    if (env.enable !== true) throw new Error('enable wrong');
+    if (env.version !== 20250101) throw new Error('version wrong');
+    if (env.params.foo !== 1) throw new Error('params not embedded');
+  });
+  await check('envelope: refreshEnvelope preserves existing fields', () => {
+    const orig = {
+      config_name: 'booster_config',
+      group_name: 'booster_config',
+      enable: false,
+      version: 1,
+      with_model: true,
+      params: { old: true },
+    };
+    const fresh = refreshEnvelope(orig, { fresh: 42 }, 2);
+    if (fresh.enable !== false) throw new Error('enable not preserved');
+    if (fresh.with_model !== true) throw new Error('with_model not preserved');
+    if (fresh.version !== 2) throw new Error('version not applied');
+    if ((fresh.params as any).fresh !== 42) throw new Error('params not replaced');
+    if ((orig.params as any).old !== true) throw new Error('original mutated');
+  });
+  await check('envelope: refreshEnvelope handles null source', () => {
+    const fresh = refreshEnvelope(null, { a: 1 }, 100);
+    if (fresh.version !== 100) throw new Error('version wrong');
+    if ((fresh.params as any).a !== 1) throw new Error('params wrong');
+  });
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

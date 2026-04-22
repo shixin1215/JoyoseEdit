@@ -1,0 +1,44 @@
+[
+  {
+    "label": "原神 (60->120) Mi15 风格",
+    "pkg": "com.miHoYo.Yuanshen",
+    "string": "com.miHoYo.Yuanshen_45_90_30_60_47_46.8_43_41_0x0_1_1",
+    "route": "qualcommStandard"
+  },
+  {
+    "label": "原神 B 站 (60->120)",
+    "pkg": "com.miHoYo.ys.bilibili",
+    "string": "com.miHoYo.ys.bilibili_45_90_30_60_47_46.8_43_41_0x0_1_1",
+    "route": "qualcommStandard"
+  },
+  {
+    "label": "原神 小米渠道",
+    "pkg": "com.miHoYo.ys.mi",
+    "string": "com.miHoYo.ys.mi_45_90_30_60_47_46.8_43_41_0x0_1_1",
+    "route": "qualcommStandard"
+  },
+  {
+    "label": "崩坏：星穹铁道 (60->90)",
+    "pkg": "com.miHoYo.hkrpg",
+    "string": "com.miHoYo.hkrpg_45_90_30_60_47_46.8_43_41_0x0_1_1",
+    "route": "qualcomm6090"
+  },
+  {
+    "label": "王者荣耀 (自定义 60->120)",
+    "pkg": "com.tencent.tmgp.sgame",
+    "string": "com.tencent.tmgp.sgame_60_120_60_120_47_46_43_41_0x0_1_0",
+    "route": "qualcommStandard"
+  },
+  {
+    "label": "和平精英 (60->120)",
+    "pkg": "com.tencent.tmgp.pubgmhd",
+    "string": "com.tencent.tmgp.pubgmhd_60_120_60_120_47_46_43_41_0x0_1_0",
+    "route": "qualcommStandard"
+  },
+  {
+    "label": "绝区零",
+    "pkg": "com.miHoYo.Nap",
+    "string": "com.miHoYo.Nap_45_90_30_60_47_46_43_41_0x0_1_1",
+    "route": "qualcommStandard"
+  }
+]

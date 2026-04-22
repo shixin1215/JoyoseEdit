@@ -1,0 +1,288 @@
+<template>
+  <div class="stack">
+    <div class="panel">
+      <h2>MIVK / MIGL<br>
+        <small>vrs / hsre / drr / gmem / mifi / misr / afme 等</small>
+      </h2>
+      <div class="muted tiny">
+        这两个键承载渲染模块的细化参数（并非主插帧通道）。
+        <span class="mono">support_module</span> 里每一项 <span class="mono">name:level</span>
+        代表 module 等级：<strong>0 = 关</strong>、<strong>1–7 = 等级</strong>、<strong>31 = 强制</strong>。
+      </div>
+      <div class="row">
+        <label class="row" style="gap: 6px">
+          <span class="tiny muted">通道</span>
+          <select v-model="channel">
+            <option value="mivk">MIVK (Vulkan)</option>
+            <option value="migl">MIGL (OpenGL)</option>
+          </select>
+        </label>
+        <button class="primary" @click="addBlank">+ 新建条目</button>
+      </div>
+    </div>
+
+    <div class="twopane">
+      <div class="list">
+        <button v-for="(entry, i) in entries" :key="i" class="item" :class="{ active: selected === i }"
+          @click="selected = i">
+          <strong>{{ (entry as any)[nameKey(channel)] }}</strong>
+          <span class="sub">{{ ((entry as any)[cmdlinesKey(channel)] ?? []).join(', ') }}</span>
+        </button>
+        <div v-if="entries.length === 0" class="muted tiny" style="padding: 12px">
+          该通道没有条目。点击"新建条目"添加。
+        </div>
+      </div>
+
+      <div v-if="currentEntry" class="detail stack">
+        <div class="row">
+          <strong class="mono">{{ (currentEntry as any)[nameKey(channel)] }}</strong>
+          <button class="danger ghost" @click="removeCurrent" style="margin-left: auto">删除</button>
+        </div>
+
+        <div class="grid-2">
+          <div class="field">
+            <label class="label">app / game 短名</label>
+            <input :value="(currentEntry as any)[nameKey(channel)]"
+              @change="(e: Event) => setName(((e.target as HTMLInputElement)).value)" />
+          </div>
+          <div class="field">
+            <label class="label">checkMainInfo</label>
+            <input :value="currentEntry.xrender_config?.checkMainInfo ?? ''"
+              @change="(e: Event) => setCheckMainInfo(((e.target as HTMLInputElement)).value)" />
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="label">{{ cmdlinesKey(channel) }}（包名，逗号或换行分隔）</label>
+          <textarea rows="2" :value="((currentEntry as any)[cmdlinesKey(channel)] ?? []).join('\n')"
+            @change="(e: Event) => setCmdlines(((e.target as HTMLTextAreaElement)).value)" />
+        </div>
+
+        <div class="panel" style="margin: 0; background: var(--bg-elevated)">
+          <h2 style="font-size: 14px">support_module</h2>
+          <table class="table">
+            <tbody>
+              <tr v-for="m in modules" :key="m.name">
+                <td><strong class="mono">{{ m.name }}</strong></td>
+                <td>
+                  <select :value="m.level"
+                    @change="(e: Event) => setLevel(m.name, Number(((e.target as HTMLSelectElement)).value))">
+                    <option v-for="lv in [0, 1, 2, 3, 4, 5, 6, 7, 31]" :key="lv" :value="lv">{{ lv === 0 ? '0 (关)' : lv
+                      === 31 ?
+                      '31 (强制)' : `${lv}` }}</option>
+                  </select>
+                </td>
+                <td style="width: 1px; white-space: nowrap; text-align: right">
+                  <button class="danger ghost" @click="dropModule(m.name)">删除</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="row" style="margin-top: 6px">
+            <select v-model="newModuleName">
+              <option v-for="n in availableModuleNames" :key="n" :value="n">{{ n }}</option>
+            </select>
+            <select v-model.number="newModuleLevel">
+              <option v-for="lv in [0, 1, 2, 3, 4, 5, 6, 7, 31]" :key="lv" :value="lv">{{ lv === 0 ? '0 (关)' : lv === 31
+                ? '31 (强制) ' : `${lv}` }}</option>
+            </select>
+            <button class="primary" @click="addModule">+ 添加 module</button>
+          </div>
+        </div>
+
+        <div class="panel" style="margin: 0">
+          <h2 style="font-size: 14px">module 参数块 <small>每个 module 一个顶层字段</small></h2>
+          <div v-for="name in moduleBlockKeys" :key="name" style="margin-bottom: 10px">
+            <div class="row">
+              <strong class="mono">{{ name }}</strong>
+              <button class="ghost" @click="removeBlock(name)">删除块</button>
+            </div>
+            <textarea rows="5" :value="stringifyBlock((currentEntry as any)[name])"
+              style="font-family: var(--font-mono); font-size: 12px; width: 100%"
+              @change="(e: Event) => setBlock(name, ((e.target as HTMLTextAreaElement)).value)" />
+          </div>
+          <div class="row">
+            <select v-model="newBlockName">
+              <option v-for="n in suggestBlockNames" :key="n" :value="n">{{ n }}</option>
+            </select>
+            <button class="primary" @click="addBlock">+ 添加参数块</button>
+          </div>
+        </div>
+      </div>
+      <div v-else class="detail muted tiny">在左侧选一条。</div>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, ref, watch } from 'vue';
+import { state, markDirty } from '@/state/session';
+import {
+  getEntries,
+  setEntries,
+  newMivkEntry,
+  newMiglEntry,
+  cmdlinesKey,
+  nameKey,
+  modulesOf,
+  setModules,
+  type Channel,
+  type ChannelEntry,
+} from '@/parsers/mivk-migl';
+import { withModule } from '@/parsers/support-module';
+import { toast } from '@/state/toast';
+import { dialog } from '@/state/dialog';
+
+const channel = ref<Channel>('mivk');
+const selected = ref(0);
+const newModuleName = ref('misr');
+const newModuleLevel = ref<number>(5);
+const newBlockName = ref('misr');
+
+const entries = computed<ChannelEntry[]>(() => {
+  const gb = state.cloudConfig.booster_config?.params?.game_booster;
+  if (!gb) return [];
+  return getEntries(gb, channel.value);
+});
+
+watch([channel], () => {
+  selected.value = 0;
+});
+
+const currentEntry = computed<ChannelEntry | null>(() => {
+  const e = entries.value;
+  if (e.length === 0) return null;
+  if (selected.value >= e.length) selected.value = 0;
+  return e[selected.value] ?? null;
+});
+
+const modules = computed(() => (currentEntry.value ? modulesOf(currentEntry.value) : []));
+
+const availableModuleNames = computed(() => {
+  const all = ['mifi', 'misr', 'drr', 'vrs', 'gmem', 'hsre', 'alr', 'sd', 'afme', 'aptssao', 'mrp'];
+  const active = new Set(modules.value.map((m) => m.name));
+  return all.filter((n) => !active.has(n));
+});
+
+const moduleBlockKeys = computed(() => {
+  if (!currentEntry.value) return [];
+  const structural = new Set([
+    'app', 'game', 'app_cmdlines', 'game_cmdlines', 'params', 'xrender_config',
+  ]);
+  return Object.keys(currentEntry.value).filter(
+    (k) => !structural.has(k) && /^(mifi|misr|drr(_static)?|gmem|vrs|aptssao|hsre|alr|afme|sd|mrp|params)$/.test(k),
+  );
+});
+
+const suggestBlockNames = computed(() => {
+  const all = ['mifi', 'misr', 'drr', 'drr_static', 'gmem', 'vrs', 'aptssao', 'hsre', 'alr', 'sd', 'afme', 'mrp'];
+  const existing = new Set(moduleBlockKeys.value);
+  return all.filter((n) => !existing.has(n));
+});
+
+function ensureGameBooster(): any {
+  const cc = state.cloudConfig.booster_config;
+  if (!cc) throw new Error('booster_config missing');
+  if (!cc.params) cc.params = {};
+  if (!cc.params.game_booster) cc.params.game_booster = {};
+  return cc.params.game_booster;
+}
+
+function setName(v: string) {
+  if (!currentEntry.value) return;
+  (currentEntry.value as any)[nameKey(channel.value)] = v;
+  markDirty();
+}
+
+function setCheckMainInfo(v: string) {
+  if (!currentEntry.value) return;
+  if (!currentEntry.value.xrender_config) currentEntry.value.xrender_config = {};
+  currentEntry.value.xrender_config.checkMainInfo = v;
+  markDirty();
+}
+
+function setCmdlines(v: string) {
+  if (!currentEntry.value) return;
+  (currentEntry.value as any)[cmdlinesKey(channel.value)] = v
+    .split(/[,\n]/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+  markDirty();
+}
+
+function setLevel(name: string, level: number) {
+  if (!currentEntry.value) return;
+  setModules(currentEntry.value, withModule(modules.value, name, level));
+  markDirty();
+}
+
+function dropModule(name: string) {
+  if (!currentEntry.value) return;
+  setModules(currentEntry.value, withModule(modules.value, name, null));
+  markDirty();
+}
+
+function addModule() {
+  if (!currentEntry.value || !newModuleName.value) return;
+  setModules(currentEntry.value, withModule(modules.value, newModuleName.value, newModuleLevel.value));
+  markDirty();
+}
+
+function stringifyBlock(v: unknown): string {
+  return JSON.stringify(v ?? {}, null, 2);
+}
+
+function setBlock(name: string, body: string) {
+  if (!currentEntry.value) return;
+  try {
+    (currentEntry.value as any)[name] = JSON.parse(body);
+    markDirty();
+  } catch (err) {
+    toast.fromError(err, `JSON 解析失败 (${name})`);
+  }
+}
+
+function removeBlock(name: string) {
+  if (!currentEntry.value) return;
+  delete (currentEntry.value as any)[name];
+  markDirty();
+}
+
+function addBlock() {
+  if (!currentEntry.value || !newBlockName.value) return;
+  if ((currentEntry.value as any)[newBlockName.value] !== undefined) return;
+  (currentEntry.value as any)[newBlockName.value] = {};
+  markDirty();
+}
+
+async function addBlank() {
+  const short = await dialog.prompt(`新条目短名`, {
+    detail: `作为 ${nameKey(channel.value)} 字段的值（例如 "yuanshen"、"hkrpg"）。`,
+    initialValue: 'newgame',
+  });
+  if (!short) return;
+  const cmdlines = await dialog.prompt('包名列表', {
+    detail: '逗号或换行分隔；主包 + 所有渠道包。',
+    initialValue: `com.example.${short}`,
+    multiline: true,
+  });
+  if (!cmdlines) return;
+  const pkgs = cmdlines.split(/[,\n]/).map((x) => x.trim()).filter(Boolean);
+  const entry = channel.value === 'mivk' ? newMivkEntry(short, pkgs) : newMiglEntry(short, pkgs);
+  const gb = ensureGameBooster();
+  const all = getEntries(gb, channel.value);
+  setEntries(gb, channel.value, [...all, entry]);
+  selected.value = all.length;
+  markDirty();
+}
+
+function removeCurrent() {
+  if (!currentEntry.value) return;
+  const gb = ensureGameBooster();
+  const all = getEntries(gb, channel.value);
+  const next = all.filter((_, i) => i !== selected.value);
+  setEntries(gb, channel.value, next);
+  selected.value = Math.max(0, selected.value - 1);
+  markDirty();
+}
+</script>
