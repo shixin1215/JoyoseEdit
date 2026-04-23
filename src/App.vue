@@ -66,6 +66,10 @@
         <span>编辑历史</span>
       </button>
 
+      <button class="nav-btn" :class="{ active: view === 'importexport' }" @click="view = 'importexport'">
+        <span>导入 / 导出</span>
+      </button>
+
       <button class="nav-btn theme-btn" @click="cycleTheme" :title="themeTitle">
         <span>主题</span>
         <span class="badge">{{ themeLabel }}</span>
@@ -121,6 +125,7 @@ const NovatekView = defineAsyncComponent(() => import('@/ui/NovatekView.vue'));
 const MivkView = defineAsyncComponent(() => import('@/ui/MivkView.vue'));
 const JsonEditorView = defineAsyncComponent(() => import('@/ui/JsonEditorView.vue'));
 const HistoryView = defineAsyncComponent(() => import('@/ui/HistoryView.vue'));
+const ImportExportView = defineAsyncComponent(() => import('@/ui/ImportExportView.vue'));
 
 type ViewId =
   | 'overview'
@@ -131,7 +136,8 @@ type ViewId =
   | 'novatek'
   | 'mivk'
   | 'json'
-  | 'history';
+  | 'history'
+  | 'importexport';
 
 const view = ref<ViewId>('overview');
 const navOpen = ref(false);
@@ -146,6 +152,7 @@ const VIEW_LABELS: Record<ViewId, string> = {
   mivk: 'MIVK / MIGL',
   json: 'JSON 编辑',
   history: '编辑历史',
+  importexport: '导入 / 导出',
 };
 
 const activeViewLabel = computed(() => VIEW_LABELS[view.value]);
@@ -161,6 +168,7 @@ const currentView = computed(() => {
     case 'mivk': return MivkView;
     case 'json': return JsonEditorView;
     case 'history': return HistoryView;
+    case 'importexport': return ImportExportView;
   }
 });
 

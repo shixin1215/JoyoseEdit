@@ -30,10 +30,14 @@
           <strong>seq {{ record.seq }}</strong>
           <span class="pill">{{ record.source }}</span>
           <span class="pill">{{ formatTime(record.timestamp) }}</span>
-          <button class="ghost" @click="loadInto('before')" style="margin-left: auto">
-            回滚到 before
+          <button class="ghost" @click="loadInto('before')" style="margin-left: auto"
+            title="把内存状态恢复到此次提交之前；还需点顶栏「提交到设备」才真正生效">
+            撤销此提交
           </button>
-          <button class="primary" @click="loadInto('after')">加载 after</button>
+          <button class="primary" @click="loadInto('after')"
+            title="重新应用此次提交的结果到内存；还需点顶栏「提交到设备」才真正生效">
+            重做此提交
+          </button>
         </div>
         <div v-if="record.note" class="muted tiny">note: {{ record.note }}</div>
         <div class="panel" style="margin: 0; background: var(--bg-elevated)">
@@ -107,10 +111,8 @@ function loadInto(which: 'before' | 'after') {
   if (!record.value) return;
   loadFromRecord(record.value, which);
   markDirty();
-  toast.info(
-    `已加载 ${which} 到内存`,
-    '使用顶部"提交到设备"按钮写入 DB（会生成一条新的历史记录）',
-  );
+  const title = which === 'before' ? '已加载"撤销此提交"到内存' : '已加载"重做此提交"到内存';
+  toast.info(title, '点顶栏「提交到设备」才会真正写入 DB，并生成一条新的历史记录');
 }
 
 async function handleClear() {
@@ -140,7 +142,10 @@ function summarize(r: Parameters<typeof summarizeRecord>[0]): string {
 
 function formatTime(epoch: number): string {
   try {
-    return new Date(epoch * 1000).toLocaleString();
+    const d = new Date(epoch * 1000);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} `
+      + `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
   } catch {
     return String(epoch);
   }

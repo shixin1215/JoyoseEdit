@@ -13,8 +13,8 @@
 #   restart                        am force-stop com.xiaomi.joyose
 #   history-list                   list every history file (one JSON per line)
 #   history-get <name>             print the contents of one history file
-#   history-save <name> <b64>      write base64-decoded body to /data/adb/joyose-edit/history/<name>
 #   history-clear <keep>           keep N newest, remove the rest
+#   (history write goes through history-save-from-stage; see staging section)
 #   cat-wasm                       emit base64 of webroot/assets/sql-wasm.wasm
 #                                  (workaround for WebView asset handlers that
 #                                   refuse .wasm fetches)
@@ -193,17 +193,6 @@ cmd_history_get() {
   cat "$DATA_ROOT/history/$1"
 }
 
-cmd_history_save() {
-  safe_name "$1" || die "invalid history name"
-  local f="$DATA_ROOT/history/$1"
-  local b64="$2"
-  [ -n "$b64" ] || die "history-save: missing base64 payload"
-  umask 077
-  printf '%s' "$b64" | base64 -d > "$f" 2>/dev/null || die "base64 decode failed"
-  chmod 600 "$f"
-  printf '{"ok":true,"path":"%s"}\n' "$f"
-}
-
 cmd_history_clear() {
   local keep="$1"
   case "$keep" in ''|*[!0-9]*) die "keep must be a non-negative integer" ;; esac
@@ -371,7 +360,6 @@ case "$cmd" in
   restart)        cmd_restart ;;
   history-list)   cmd_history_list ;;
   history-get)    cmd_history_get "${1:?}" ;;
-  history-save)   cmd_history_save "${1:?}" "${2:?}" ;;
   history-clear)  cmd_history_clear "${1:?}" ;;
   cat-wasm)       cmd_cat_wasm ;;
   vision-status)  cmd_vision_status ;;
