@@ -5,3 +5,4 @@ versionCode=1
 author=YuKongA
 description=KernelSU WebUI editor for V3 Joyose cloud control (SmartP.db + teg_config.db). Supports Novatek / Qualcomm GPU (AFME/FRC/FSR) / MIVK paths, with additive edit history.
 updateJson=
+webuiIcon=icon.png
