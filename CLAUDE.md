@@ -1034,7 +1034,7 @@ adb shell "cat /proc/$PID/maps | grep -E 'libmivk|libmigl'"
 | `tests/Xiaomi 17 Ultra/`    | Xiaomi 17 Ultra    | MIFISR          | 已下发 `game_mifisr_config` 4 条 + `feature:SR` policy；vendor FRC/SR flag 都 true                   |
 | `tests/Xiaomi 15/`          | Xiaomi 15          | Qualcomm legacy | **未实测**。4 条 FRC 条目 + `feature:FI/strategy:AFME`                                               |
 | `tests/Xiaomi 15 Pro/`      | Xiaomi 15 Pro      | Qualcomm legacy | **未实测**。4 FRC + 4 MIGL 游戏                                                                      |
-| `tests/Xiaomi K90 Pro Max/` | Xiaomi K90 Pro Max | Novatek         | **未实测**。71 条 novatek_game_params；`rules` 表空                                                  |
+| `tests/Redmi K90 Pro Max/` | Redmi K90 Pro Max | Novatek         | **未实测**。71 条 novatek_game_params；`rules` 表空                                                  |
 
 ---
 

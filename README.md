@@ -20,12 +20,12 @@
 
 ## 适用机型（基于样本实测）
 
-| 机型 | 主插帧路径 | 状态 |
-| --- | --- | --- |
-| Xiaomi 17 Pro Max | — | 默认未下发；可通过本模块自主添加 |
-| Xiaomi 15 | 高通 GPU (AFME + FRC + FSR) | 已下发原神 / 星铁 4 条 |
-| Xiaomi 15 Pro | 高通 GPU (AFME + FRC + FSR) | 与 15 一致，MIGL 多了王者 / 吃鸡 |
-| Xiaomi K90 Pro Max（Redmi 继任） | Novatek 独显 (d1 / d2) | 下发 71 条，`rules` 表空 |
+| 机型              | 主插帧路径                  | 状态                             |
+| ----------------- | --------------------------- | -------------------------------- |
+| Xiaomi 17 Pro Max | —                           | 默认未下发；可通过本模块自主添加 |
+| Xiaomi 15         | 高通 GPU (AFME + FRC + FSR) | 已下发原神 / 星铁 4 条           |
+| Xiaomi 15 Pro     | 高通 GPU (AFME + FRC + FSR) | 与 15 一致，MIGL 多了王者 / 吃鸡 |
+| Redmi K90 Pro Max | Novatek 独显 (d1 / d2)      | 下发 71 条，`rules` 表空         |
 
 其它小米 / 红米 V3 设备也可以试，格式一致。
 

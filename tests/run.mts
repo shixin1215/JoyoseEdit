@@ -84,7 +84,7 @@ const SAMPLES = [
   { label: 'Xiaomi 17 Ultra', smartp: 'tests/Xiaomi 17 Ultra/SmartP.db', teg: 'tests/Xiaomi 17 Ultra/teg_config.db', expectedBackend: 'mifisr' as const },
   { label: 'Xiaomi 15', smartp: 'tests/Xiaomi 15/SmartP.db', teg: 'tests/Xiaomi 15/teg_config.db', expectedBackend: 'qualcomm' as const },
   { label: 'Xiaomi 15 Pro', smartp: 'tests/Xiaomi 15 Pro/SmartP.db', teg: 'tests/Xiaomi 15 Pro/teg_config.db', expectedBackend: 'qualcomm' as const },
-  { label: 'Xiaomi K90 Pro Max', smartp: 'tests/Xiaomi K90 Pro Max/SmartP.db', teg: 'tests/Xiaomi K90 Pro Max/teg_config.db', expectedBackend: 'novatek' as const },
+  { label: 'Redmi K90 Pro Max', smartp: 'tests/Redmi K90 Pro Max/SmartP.db', teg: 'tests/Redmi K90 Pro Max/teg_config.db', expectedBackend: 'novatek' as const },
 ] as const;
 
 type SamplePaths = (typeof SAMPLES)[number];

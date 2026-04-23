@@ -64,7 +64,7 @@ export const KNOWN_GAMES: readonly KnownGame[] = [
     code: 'ZZZ',
     name: '绝区零（米哈游）',
     backends: ['vk'],
-    packages: ['com.miHoYo.Nap'],
+    packages: ['com.miHoYo.Nap', 'com.miHoYo.Nap.bilibili'],
     source: 'decompiled',
   },
   {
