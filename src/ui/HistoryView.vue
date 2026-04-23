@@ -58,7 +58,7 @@
             style="background: var(--bg); padding: 10px; border-radius: 6px; max-height: 300px; overflow: auto">{{ JSON.stringify(record.after, null, 2) }}</pre>
         </details>
       </div>
-      <div v-else class="detail muted tiny">在左侧选一条。</div>
+      <div v-else class="detail muted tiny">从列表里选一条。</div>
     </div>
   </div>
 </template>

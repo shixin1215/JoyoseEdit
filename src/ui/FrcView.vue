@@ -149,7 +149,7 @@
         </div>
       </div>
 
-      <div v-else class="detail hint">在左侧选一条，或点击"新建条目"。</div>
+      <div v-else class="detail hint">从列表里选一条，或点击"新建条目"。</div>
     </div>
   </div>
 </template>

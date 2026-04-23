@@ -2,7 +2,12 @@ import { defineConfig, type Plugin } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import { fileURLToPath, URL } from 'node:url';
 import { promises as fs } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
+
+const pkg = JSON.parse(
+  readFileSync(fileURLToPath(new URL('./package.json', import.meta.url)), 'utf-8'),
+) as { version: string };
 
 function copySqlWasm(): Plugin {
   return {
@@ -19,6 +24,9 @@ function copySqlWasm(): Plugin {
 
 export default defineConfig({
   plugins: [vue(), copySqlWasm()],
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+  },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),

@@ -1,5 +1,5 @@
 <template>
-  <div class="panel" style="margin-bottom: 0">
+  <div class="panel">
     <strong>{{ label }}</strong>
     <div v-if="!stat || !stat.exists" class="hint">未找到</div>
     <div v-else class="stack hint" style="gap: var(--space-1); margin-top: var(--space-2)">

@@ -65,7 +65,7 @@
           </div>
         </div>
       </div>
-      <div v-else class="detail hint">在左侧选一条。</div>
+      <div v-else class="detail hint">从列表里选一条。</div>
     </div>
 
     <div class="panel">
@@ -198,7 +198,7 @@ function rewrite() {
 
 async function addBlank() {
   const pkg = await dialog.prompt('新条目的包名', {
-    detail: '会生成一条空白 novatek_game_params 模板，随后你可以在右侧详情编辑。',
+    detail: '会生成一条空白 novatek_game_params 模板，随后可在详情区域编辑。',
     initialValue: 'com.example.newgame',
   });
   if (!pkg) return;

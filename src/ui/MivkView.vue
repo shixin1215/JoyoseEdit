@@ -106,7 +106,7 @@
           </div>
         </div>
       </div>
-      <div v-else class="detail hint">在左侧选一条。</div>
+      <div v-else class="detail hint">从列表里选一条。</div>
     </div>
   </div>
 </template>

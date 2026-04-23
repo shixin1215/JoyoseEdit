@@ -1,5 +1,5 @@
 <template>
-  <div class="panel" style="margin-bottom: 0">
+  <div class="panel">
     <div class="panel-header">
       <h2>{{ title }} <small>{{ packages.length }} 条</small></h2>
     </div>
@@ -10,7 +10,7 @@
       <button class="ghost" @click="bulkPaste">批量粘贴</button>
       <button class="ghost" @click="dedupe">去重排序</button>
     </div>
-    <div style="max-height: 48dvh; overflow-y: auto">
+    <div class="pkg-list-scroll">
       <table class="table">
         <tbody>
           <tr v-for="(p, i) in filtered" :key="p + i">
@@ -77,3 +77,17 @@ function dedupe() {
   emit('update', Array.from(new Set(props.packages)).sort());
 }
 </script>
+
+<style scoped>
+.pkg-list-scroll {
+  max-height: 48dvh;
+  overflow-y: auto;
+}
+
+@media (max-width: 720px) {
+  .pkg-list-scroll {
+    max-height: none;
+    overflow-y: visible;
+  }
+}
+</style>

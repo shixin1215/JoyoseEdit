@@ -75,7 +75,7 @@ am force-stop com.miui.securitycenter</pre>
       <strong>该游戏在画面生效白名单内</strong>
       <span class="hint">
         匹配到 <strong>{{ whitelistMatch.name }}</strong>，后端：<span class="mono">{{ whitelistMatch.backends.join(' / ')
-          }}</span>。
+        }}</span>。
         <template v-if="whitelistMatch.source === 'inferred'">
           <br>⚠ 识别结果基于公开资料推断，若实机未激活请反馈。
         </template>
@@ -179,67 +179,92 @@ am force-stop com.miui.securitycenter</pre>
           <h2 style="font-size: 14px">画质增强策略 <small>按需组合 FI / SR / FISR</small></h2>
           <div class="row">
             <button @click="addFisrFeature('FI')" :disabled="hasFeature('FI')"
-              :title="hasFeature('FI') ? '已存在' : '⚠ 实验性：可能出现画面异常 / 输入延迟 / 功耗上升'">
-              + FI（仅插帧）⚠
+              :title="hasFeature('FI') ? '已存在' : '可能出现画面异常/输入延迟'">
+              + FI（仅插帧）
             </button>
             <button @click="addFisrFeature('SR')" :disabled="hasFeature('SR')"
               :title="hasFeature('SR') ? '已存在' : '添加仅超分配置（Ultra 同款）'">
               + SR（仅超分）
             </button>
             <button @click="addFisrFeature('FISR')" :disabled="hasFeature('FISR')"
-              :title="hasFeature('FISR') ? '已存在' : '⚠ 实验性：插帧 + 超分同时开启，功耗 / 延迟风险最高'">
-              + FISR（合体）⚠
+              :title="hasFeature('FISR') ? '已存在' : '插帧 + 超分同时开启，功耗/延迟风险最高'">
+              + FISR（合体）
             </button>
             <label class="row" style="margin-left: auto; gap: var(--space-1)">
               <input type="checkbox" v-model="alsoUpdateMqs" />
               <span class="hint">同步写入 <span class="mono">mqs_enhance_list</span></span>
             </label>
           </div>
-          <table class="table" v-if="routedPolicies && routedPolicies.length" style="margin-top: var(--space-2)">
-            <thead>
-              <tr>
-                <th>类型</th>
-                <th>策略</th>
-                <th style="white-space: nowrap">均衡 / 性能</th>
-                <th style="white-space: nowrap">最高刷新率 <small class="muted">(均衡#性能)</small></th>
-                <th>禁用场景</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="p in routedPolicies" :key="p.feature">
-                <td><strong class="mono">{{ p.feature }}</strong></td>
-                <td class="mono">{{ p.strategy }}</td>
-                <td style="white-space: nowrap">
-                  <label class="row" style="gap: 4px; display: inline-flex">
+          <div v-if="routedPolicies && routedPolicies.length" class="stack"
+            style="margin-top: var(--space-2); gap: var(--space-3)">
+            <div v-for="p in routedPolicies" :key="p.feature" class="policy-card">
+              <div class="row" style="justify-content: space-between; margin-bottom: var(--space-2)">
+                <strong class="mono" style="font-size: 14px">{{ p.feature }}</strong>
+                <button class="danger ghost" @click="removeFisrFeature(String(p.feature))"
+                  :title="`移除 ${p.feature}`">删除</button>
+              </div>
+
+              <div class="stack" style="gap: var(--space-2)">
+                <div class="field-line">
+                  <span class="field-name mono">strategy</span>
+                  <input type="text" class="mono field-input w-strategy" placeholder="MIFISR"
+                    :value="(p.strategy as string) ?? ''"
+                    @change="(e: Event) => setStrategy(p, (e.target as HTMLInputElement).value)" />
+                  <span class="hint">参考: MIFISR、AFME、FSR、FRC 等</span>
+                </div>
+
+                <div class="field-line">
+                  <span class="field-name mono">support_game_mode</span>
+                  <label style="display: inline-flex; gap: 4px; align-items: center">
                     <input type="checkbox" :checked="gameModeBit(p, 0)"
                       @change="(e: Event) => setGameModeBit(p, 0, (e.target as HTMLInputElement).checked)" />
                     <span class="tiny">均衡</span>
                   </label>
-                  <label class="row" style="gap: 4px; display: inline-flex; margin-left: 8px">
+                  <label style="display: inline-flex; gap: 4px; align-items: center; margin-left: var(--space-2)">
                     <input type="checkbox" :checked="gameModeBit(p, 1)"
                       @change="(e: Event) => setGameModeBit(p, 1, (e.target as HTMLInputElement).checked)" />
                     <span class="tiny">性能</span>
                   </label>
-                  <span class="tiny muted mono" style="margin-left: 8px">{{ (p.support_game_mode as string) ?? '—'
-                  }}</span>
-                </td>
-                <td>
-                  <input v-if="needsMaxRefresh(p)" type="text" class="mono" :class="maxRefreshMissing(p) ? 'warn' : ''"
-                    style="width: 92px; padding: 2px 6px; font-size: 12px"
+                  <span class="tiny muted mono" style="margin-left: var(--space-2)">{{ (p.support_game_mode as string)
+                    ??
+                    '—' }}</span>
+                </div>
+
+                <div v-if="needsMaxRefresh(p)" class="field-line">
+                  <span class="field-name mono">support_max_refresh</span>
+                  <span class="hint">智能插帧的刷新率上限，默认=60#120</span>
+                  <input type="text" class="mono field-input w-refresh" :class="maxRefreshMissing(p) ? 'warn' : ''"
                     :value="(p.support_max_refresh as string) ?? ''"
-                    :placeholder="maxRefreshMissing(p) ? 'default=60 ⚠' : '60#120'"
+                    :placeholder="maxRefreshMissing(p) ? 'default=60' : '默认: 60#120'"
                     @change="(e: Event) => setMaxRefresh(p, (e.target as HTMLInputElement).value)" />
-                  <span v-else class="tiny muted" title="超分不使用此字段">—</span>
-                </td>
-                <td class="mono tiny">{{ disableSceneText(p) || '—' }}</td>
-                <td>
-                  <button class="danger ghost" @click="removeFisrFeature(String(p.feature))"
-                    :title="`移除 ${p.feature}`">删除</button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+                </div>
+
+                <div class="field-line">
+                  <span class="field-name mono">disable_scene_list</span>
+                  <span class="hint">场景 ID，英文逗号分隔的，留空=不禁用</span>
+                  <input type="text" class="mono field-input w-scene" placeholder="参考: 10004,1051"
+                    :value="disableSceneText(p)"
+                    @change="(e: Event) => setDisableSceneList(p, (e.target as HTMLInputElement).value)" />
+                </div>
+
+                <div class="field-line">
+                  <span class="field-name mono">support_resolution_leave</span>
+                  <span class="hint">分辨率 Level 白名单，留空=允许所有</span>
+                  <input type="text" class="mono field-input w-refresh" placeholder="留空: 允许所有"
+                    :value="(p.support_resolution_leave as string) ?? ''"
+                    @change="(e: Event) => setResolutionLeave(p, (e.target as HTMLInputElement).value)" />
+                </div>
+
+                <div class="field-line">
+                  <span class="field-name mono">switch_default_status</span>
+                  <span class="hint">UI 开关初始位（均衡#性能），留空=0#0</span>
+                  <input type="text" class="mono field-input w-flag" placeholder="留空: 0#0"
+                    :value="(p.switch_default_status as string) ?? ''"
+                    @change="(e: Event) => setSwitchDefaultStatus(p, (e.target as HTMLInputElement).value)" />
+                </div>
+              </div>
+            </div>
+          </div>
           <div v-else class="hint">该包还没有画质增强策略。点上面的 + FI / + SR / + FISR 按需添加。</div>
 
           <div v-if="hasMissingMaxRefresh" class="banner warn">
@@ -301,7 +326,7 @@ am force-stop com.miui.securitycenter</pre>
         </div>
       </div>
 
-      <div v-else class="detail hint">在左侧选一条，或点击"新建条目"。</div>
+      <div v-else class="detail hint">从列表里选一条，或点击"新建条目"。</div>
     </div>
   </div>
 </template>
@@ -632,6 +657,55 @@ function setGameModeBit(p: any, idx: 0 | 1, on: boolean): void {
   markDirty();
 }
 
+// Allow editing `strategy` directly. Empty input falls back to MIFISR since
+// every UI-driven policy on 17 series binds to it by default.
+function setStrategy(p: FisrPolicy, value: string): void {
+  const v = value.trim();
+  p.strategy = v || 'MIFISR';
+  markDirty();
+}
+
+// `disable_scene_list` is an integer array. Parse comma / whitespace separated
+// input; drop empty tokens and non-integers silently rather than rejecting
+// mid-edit. Empty input removes the field entirely.
+function setDisableSceneList(p: FisrPolicy, value: string): void {
+  const v = value.trim();
+  if (v === '') {
+    delete p.disable_scene_list;
+  } else {
+    const ids = v.split(/[,\s]+/)
+      .map((s) => Number(s))
+      .filter((n) => Number.isInteger(n));
+    p.disable_scene_list = ids;
+  }
+  markDirty();
+}
+
+// `support_resolution_leave` is a comma-separated string of render levels.
+// Keep it as the raw string — Joyose parses it itself. Empty removes the field.
+function setResolutionLeave(p: FisrPolicy, value: string): void {
+  const v = value.trim();
+  if (v === '') {
+    delete p.support_resolution_leave;
+  } else {
+    p.support_resolution_leave = v;
+  }
+  markDirty();
+}
+
+// `switch_default_status` is `X#Y` bitmap for the initial switch state.
+// We don't strictly validate here — users may legitimately want values like
+// `1#0`. Empty clears the field.
+function setSwitchDefaultStatus(p: FisrPolicy, value: string): void {
+  const v = value.trim();
+  if (v === '') {
+    delete p.switch_default_status;
+  } else {
+    p.switch_default_status = v;
+  }
+  markDirty();
+}
+
 function rewrite() {
   const p = currentParsed.value;
   if (!p) return;
@@ -852,3 +926,52 @@ function enableMifisrSwitch() {
   toast.success('已开启 MIFISR 总开关', 'fisr_mqs_v2 = true');
 }
 </script>
+
+<style scoped>
+.policy-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+}
+
+.field-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.field-name {
+  min-width: 180px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.field-input.w-strategy {
+  width: 140px;
+}
+
+.field-input.w-refresh {
+  width: 120px;
+}
+
+.field-input.w-scene {
+  width: 200px;
+}
+
+.field-input.w-flag {
+  width: 80px;
+}
+
+@media (max-width: 480px) {
+  .field-name {
+    min-width: 100%;
+  }
+
+  .field-input {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+}
+</style>

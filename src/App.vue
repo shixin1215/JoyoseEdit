@@ -10,7 +10,7 @@
     <div class="sidebar-scrim" v-show="navOpen" @click="navOpen = false" aria-hidden="true" />
     <nav class="sidebar" @click="onNavClick">
       <h1>Joyose<span>Edit</span></h1>
-      <div class="sidebar-version">v0.1.0 · V3 · KernelSU WebUI</div>
+      <div class="sidebar-version">v{{ version }} · KernelSU WebUI</div>
 
       <button class="nav-btn" :class="{ active: view === 'overview' }" @click="view = 'overview'">
         <span>概览</span>
@@ -141,6 +141,7 @@ type ViewId =
 
 const view = ref<ViewId>('overview');
 const navOpen = ref(false);
+const version = __APP_VERSION__;
 
 const VIEW_LABELS: Record<ViewId, string> = {
   overview: '概览',
