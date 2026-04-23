@@ -5,9 +5,8 @@
 // chain is never destroyed.
 
 import type { DiffRecord } from './diff';
-import { diff } from './diff';
 
-export type HistorySource = 'webui' | 'revert' | 'cleanup';
+export type HistorySource = 'webui' | 'revert' | 'cleanup' | 'backup';
 
 /** Full snapshot of the params we edit, so rollback is a pure function. */
 export interface ConfigSnapshot {
@@ -22,15 +21,16 @@ export interface ConfigSnapshot {
   };
 }
 
+/** Git-style incremental commit. `delta` is the forward patch from parent
+ * state to this state; state is reconstructed by walking the chain (see
+ * session.ts::restoreToRecord). Files stay in the KB range. */
 export interface HistoryRecord {
-  version: 1;
+  version: 2;
   seq: number;
-  timestamp: number; // epoch seconds
+  timestamp: number;
   source: HistorySource;
   note: string;
-  before: ConfigSnapshot;
-  after: ConfigSnapshot;
-  diff_summary: DiffRecord[];
+  delta: DiffRecord[];
 }
 
 export interface HistoryFileMeta {
@@ -68,31 +68,44 @@ export interface BuildRecordArgs {
   timestamp?: number;
   source?: HistorySource;
   note?: string;
-  before: ConfigSnapshot;
-  after: ConfigSnapshot;
+  /** Forward delta (parent-state -> this-state). Typically produced by
+   *  `diff(before, after)` where before / after are `ConfigSnapshot`s. */
+  delta: DiffRecord[];
 }
 
 export function buildRecord(args: BuildRecordArgs): HistoryRecord {
   return {
-    version: 1,
+    version: 2,
     seq: args.seq,
     timestamp: args.timestamp ?? Math.floor(Date.now() / 1000),
     source: args.source ?? 'webui',
     note: args.note ?? '',
-    before: args.before,
-    after: args.after,
-    diff_summary: diff(args.before, args.after),
+    delta: args.delta,
   };
 }
 
+/** Project `state.cloudConfig` / `state.rulesByModule` (which wrap values
+ * as `{meta, params|content}`) into a lean snapshot that carries only the
+ * parsed JSON — `meta` holds DB row metadata (version, uid, …) that would
+ * inflate the snapshot without helping state reconstruction; rehydration
+ * keeps the live `meta` from current state anyway. */
 export function snapshotFromMaps(args: {
   cloudConfig: Record<string, unknown>;
   rulesByModule: Record<string, unknown[]>;
 }): ConfigSnapshot {
-  return {
-    smartp: { cloud_config: clone(args.cloudConfig) },
-    teg: { rules: clone(args.rulesByModule) },
-  };
+  const cc: Record<string, unknown> = {};
+  for (const [name, v] of Object.entries(args.cloudConfig)) {
+    const inner = (v as any)?.params;
+    cc[name] = clone(inner !== undefined ? inner : v);
+  }
+  const rules: Record<string, unknown[]> = {};
+  for (const [mod, rows] of Object.entries(args.rulesByModule)) {
+    rules[mod] = rows.map((r: any) => {
+      const inner = r?.content;
+      return clone(inner !== undefined ? inner : r);
+    });
+  }
+  return { smartp: { cloud_config: cc }, teg: { rules } };
 }
 
 function clone<T>(v: T): T {

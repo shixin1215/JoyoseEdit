@@ -127,6 +127,73 @@ function deepEqual(a: unknown, b: unknown): boolean {
   return true;
 }
 
+/** Parse a path produced by `diff()` into a sequence of segments.
+ * Object keys are strings; array indices are numbers. */
+export function parsePath(path: string): (string | number)[] {
+  if (!path || path === '/') return [];
+  const segs: (string | number)[] = [];
+  for (const part of path.split('.')) {
+    const m = /^([^\[]*)((?:\[\d+\])*)$/.exec(part);
+    const name = m?.[1] ?? part;
+    const brackets = m?.[2] ?? '';
+    if (name) segs.push(name);
+    for (const im of brackets.matchAll(/\[(\d+)\]/g)) segs.push(Number(im[1]));
+  }
+  return segs;
+}
+
+/** Apply a forward delta (produced by `diff(before, after)`) to a clone of
+ * `snap` and return the result. Deltas are applied in REVERSE order so that
+ * trailing-index array `removed` / `added` ops from `diff()` compose
+ * correctly (splice-from-the-end semantics).
+ *
+ * Assumes `diff()` never decomposes a whole-branch add/remove into nested
+ * records — so the parent of every affected leaf is guaranteed to exist in
+ * the snapshot being mutated. That is how `diff()` at line 91/92 behaves:
+ * absent keys emit a single `added`/`removed` carrying the full subtree. */
+export function applyDelta<T>(snap: T, delta: DiffRecord[]): T {
+  const out = JSON.parse(JSON.stringify(snap)) as T;
+  for (let i = delta.length - 1; i >= 0; i--) {
+    const d = delta[i];
+    const segs = parsePath(d.path);
+    if (segs.length === 0) continue;
+    const parentSegs = segs.slice(0, -1);
+    const last = segs[segs.length - 1];
+    let parent: any = out;
+    for (const s of parentSegs) {
+      if (parent == null) { parent = null; break; }
+      parent = parent[s];
+    }
+    if (parent == null) continue;
+    if (d.kind === 'removed') {
+      if (Array.isArray(parent) && typeof last === 'number') {
+        parent.splice(last, 1);
+      } else {
+        delete parent[last];
+      }
+    } else {
+      parent[last] = d.after;
+    }
+  }
+  return out;
+}
+
+/** Invert a delta: applying `invertDelta(d)` after applying `d` yields the
+ * original state. DiffRecord is invertible by construction (added ↔ removed,
+ * changed swaps before/after). */
+export function invertDelta(delta: DiffRecord[]): DiffRecord[] {
+  return delta.map((d) => {
+    switch (d.kind) {
+      case 'added':
+        return { path: d.path, kind: 'removed' as const, before: d.after };
+      case 'removed':
+        return { path: d.path, kind: 'added' as const, after: d.before };
+      case 'changed':
+        return { path: d.path, kind: 'changed' as const, before: d.after, after: d.before };
+    }
+  });
+}
+
 /** Abbreviate a DiffRecord for compact list display. Leaves long values
  * truncated with an ellipsis. */
 export function summarizeRecord(r: DiffRecord, maxLen = 60): string {

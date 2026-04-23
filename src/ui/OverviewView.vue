@@ -74,7 +74,7 @@
 </template>
 
 <script setup lang="ts">
-import { state, pullAll, refreshStat } from '@/state/session';
+import { state, pullAll, refreshStat, recordBackupCheckpoint } from '@/state/session';
 import { toast } from '@/state/toast';
 import { dialog } from '@/state/dialog';
 import * as bridge from '@/root/bridge';
@@ -103,6 +103,7 @@ async function handleRefresh() {
 async function handleBackup() {
   try {
     const r = await bridge.backup();
+    await recordBackupCheckpoint(r.name).catch(() => null);
     await refreshStat();
     toast.success('已备份', r.name);
   } catch (err) {

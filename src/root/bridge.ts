@@ -46,12 +46,23 @@ export function isKsuAvailable(): boolean {
 }
 
 /** Thin wrapper around `exec` from `kernelsu`: surfaces shell non-zero as a
- * typed rejection and maps the missing-bridge case to RootBridgeUnavailable. */
+ * typed rejection, maps the missing-bridge case to RootBridgeUnavailable,
+ * and enforces a hard timeout so a hung bridge can't lock the UI. */
+const KSU_TIMEOUT_MS = 30000;
+
 async function runKsu(cmd: string): Promise<string> {
   if (!isKsuAvailable()) throw new RootBridgeUnavailable();
   let result: ExecResults;
   try {
-    result = await exec(cmd);
+    result = await Promise.race([
+      exec(cmd),
+      new Promise<ExecResults>((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`ksu.exec 超时（${KSU_TIMEOUT_MS}ms）`)),
+          KSU_TIMEOUT_MS,
+        ),
+      ),
+    ]);
   } catch (err) {
     throw new RootBridgeError(
       `ksu.exec threw: ${(err as Error)?.message ?? String(err)}`,

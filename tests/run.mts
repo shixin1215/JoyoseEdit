@@ -72,7 +72,7 @@ import {
   parseHistoryFilename,
   nextSeq,
 } from '../src/history/store';
-import { diff, summarizeRecord } from '../src/history/diff';
+import { diff, summarizeRecord, applyDelta, invertDelta } from '../src/history/diff';
 import { buildRuleEnvelope, refreshEnvelope } from '../src/history/envelope';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -674,7 +674,7 @@ async function runHistoryStoreTest() {
     rulesByModule: { booster_config: [{ v: 2 }] },
   });
 
-  const rec1 = buildRecord({ seq: 1, before: s1, after: s2, note: 'first edit' });
+  const rec1 = buildRecord({ seq: 1, delta: diff(s1, s2), note: 'first edit' });
   await check('history: append + list + read', async () => {
     const n1 = await store.append(rec1);
     if (!n1.endsWith('-1.json')) throw new Error(`bad filename: ${n1}`);
@@ -682,8 +682,9 @@ async function runHistoryStoreTest() {
     if (list.length !== 1 || list[0].seq !== 1) throw new Error('list wrong');
     const read = await store.read(n1);
     if (read.seq !== 1 || read.note !== 'first edit') throw new Error('read mismatch');
-    if (!Array.isArray(read.diff_summary) || read.diff_summary.length === 0) {
-      throw new Error('diff_summary empty');
+    if (read.version !== 2) throw new Error(`expected v2, got v${read.version}`);
+    if (read.version === 2 && (!Array.isArray(read.delta) || read.delta.length === 0)) {
+      throw new Error('delta empty');
     }
   });
 
@@ -693,7 +694,7 @@ async function runHistoryStoreTest() {
     if (next !== 2) throw new Error(`expected 2, got ${next}`);
   });
 
-  const rec2 = buildRecord({ seq: 2, before: s2, after: s1, note: 'rollback', source: 'revert' });
+  const rec2 = buildRecord({ seq: 2, delta: diff(s2, s1), note: 'rollback', source: 'revert' });
   await check('history: multiple records sort by time+seq desc', async () => {
     await store.append(rec2);
     const list = await store.list();
@@ -703,13 +704,22 @@ async function runHistoryStoreTest() {
   await check('history: clear keeps N newest', async () => {
     for (let i = 3; i < 8; i++) {
       await store.append(
-        buildRecord({ seq: i, before: s1, after: s2, note: `edit ${i}`, timestamp: 1_700_000_000 + i }),
+        buildRecord({ seq: i, delta: diff(s1, s2), note: `edit ${i}`, timestamp: 1_700_000_000 + i }),
       );
     }
     const removed = await store.clear(3);
     const list = await store.list();
     if (list.length !== 3) throw new Error(`expected 3, got ${list.length}`);
     if (removed + 3 !== 7) throw new Error(`removed+kept should be 7, got ${removed}+3`);
+  });
+
+  await check('history: v2 record JSON round-trip', async () => {
+    const fresh = buildRecord({ seq: 99, delta: diff(s1, s2), note: 'round-trip' });
+    const serialized = JSON.stringify(fresh);
+    const parsed = JSON.parse(serialized);
+    if (parsed.version !== 2) throw new Error('version lost');
+    if (JSON.stringify(parsed.delta) !== JSON.stringify(fresh.delta)) throw new Error('delta drift');
+    if ('before' in parsed || 'after' in parsed) throw new Error('v2 must not carry before/after');
   });
 
   await fs.rm(tmp, { recursive: true, force: true });
@@ -733,6 +743,59 @@ async function runDiffTest() {
   await check('diff: empty when equal', () => {
     const r = diff({ a: 1 }, { a: 1 });
     if (r.length !== 0) throw new Error('should be empty');
+  });
+
+  await check('diff: applyDelta reconstructs after from before', () => {
+    const d = diff(a, b);
+    const got = applyDelta(a, d);
+    if (JSON.stringify(got) !== JSON.stringify(b)) {
+      throw new Error(`reconstruct mismatch:\n  got=${JSON.stringify(got)}\n  want=${JSON.stringify(b)}`);
+    }
+  });
+
+  await check('diff: invertDelta reverses back to before', () => {
+    const d = diff(a, b);
+    const back = applyDelta(b, invertDelta(d));
+    if (JSON.stringify(back) !== JSON.stringify(a)) {
+      throw new Error(`reverse mismatch:\n  got=${JSON.stringify(back)}\n  want=${JSON.stringify(a)}`);
+    }
+  });
+
+  await check('diff: invertDelta is self-inverse', () => {
+    const d = diff(a, b);
+    const twice = invertDelta(invertDelta(d));
+    if (JSON.stringify(twice) !== JSON.stringify(d)) throw new Error('double-invert drift');
+  });
+
+  await check('diff: chain round-trip across 3 commits (walk back)', () => {
+    // Simulates the restore path: working-tree (sN) + reverse-applying N forward
+    // deltas must land on the original base state.
+    const s0 = { n: 0, tags: [] as string[], meta: { v: 0 } };
+    const s1 = { n: 1, tags: ['a'], meta: { v: 0 } };
+    const s2 = { n: 2, tags: ['a', 'b'], meta: { v: 1 } };
+    const s3 = { n: 2, tags: ['a'], meta: { v: 1, extra: true } };
+    const deltas = [diff(s0, s1), diff(s1, s2), diff(s2, s3)];
+    // Forward composition: applying deltas in order on s0 yields s3
+    let cur: any = JSON.parse(JSON.stringify(s0));
+    for (const d of deltas) cur = applyDelta(cur, d);
+    if (JSON.stringify(cur) !== JSON.stringify(s3)) throw new Error('forward chain failed');
+    // Reverse composition: walk s3 back via inverse deltas in reverse order
+    cur = JSON.parse(JSON.stringify(s3));
+    for (let i = deltas.length - 1; i >= 0; i--) cur = applyDelta(cur, invertDelta(deltas[i]));
+    if (JSON.stringify(cur) !== JSON.stringify(s0)) throw new Error('reverse chain failed');
+  });
+
+  await check('diff: array trailing remove is correctly inverted', () => {
+    // Regression: diff() emits `removed` records for trailing array elements
+    // in ascending index order. applyDelta's reverse-processing must restore
+    // them cleanly via invertDelta.
+    const before = { xs: ['a', 'b', 'c', 'd', 'e'] };
+    const after = { xs: ['a', 'b'] };
+    const d = diff(before, after);
+    const fwd = applyDelta(before, d);
+    if (JSON.stringify(fwd) !== JSON.stringify(after)) throw new Error('forward truncation failed');
+    const back = applyDelta(after, invertDelta(d));
+    if (JSON.stringify(back) !== JSON.stringify(before)) throw new Error('reverse extension failed');
   });
 }
 

@@ -40,6 +40,7 @@ async function main() {
   await fs.chmod(path.join(stagingDir, 'bin', 'joyose-edit.sh'), 0o755).catch(() => { });
   await fs.chmod(path.join(stagingDir, 'customize.sh'), 0o755).catch(() => { });
   await fs.chmod(path.join(stagingDir, 'post-fs-data.sh'), 0o755).catch(() => { });
+  await fs.chmod(path.join(stagingDir, 'uninstall.sh'), 0o755).catch(() => { });
 
   // copy dist/ into staging/webroot/
   const webroot = path.join(stagingDir, 'webroot');

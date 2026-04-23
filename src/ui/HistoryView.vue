@@ -1,10 +1,11 @@
 <template>
   <div class="stack">
     <div class="panel">
-      <h2>编辑历史 <small>每次提交都是一条新记录</small></h2>
+      <h2>编辑历史 <small>每次提交都是一条新记录（git 风格增量）</small></h2>
       <div class="hint">
-        历史保存在 <span class="mono">/data/adb/joyose-edit/history/</span>。
-        回滚会把所选记录加载到内存，由你决定是否提交到设备；回滚<strong>不会</strong>删除任何历史。
+        历史保存在 <span class="mono">/data/adb/joyose-edit/history/</span>。每条记录只存本次
+        变更的增量 delta；"恢复到此提交之前/之后"会从当前内存状态反向走链路算出目标状态，
+        交给你决定是否提交到设备。回滚<strong>不会</strong>删除任何历史。
       </div>
       <div class="row" style="margin-top: var(--space-2)">
         <button class="ghost" @click="refresh" :disabled="loading">刷新</button>
@@ -18,7 +19,7 @@
           @click="select(item.name)">
           <strong>{{ formatTime(item.timestamp) }}</strong>
           <span class="sub">seq {{ item.seq }}</span>
-          <span v-if="selected?.name === item.name" class="sub">加载中…</span>
+          <span v-if="selected?.name === item.name && detailLoading" class="sub">加载中…</span>
         </button>
         <div v-if="listing.length === 0" class="muted tiny" style="padding: 12px">
           （暂无历史）
@@ -30,46 +31,44 @@
           <strong>seq {{ record.seq }}</strong>
           <span class="pill">{{ record.source }}</span>
           <span class="pill">{{ formatTime(record.timestamp) }}</span>
-          <button class="ghost" @click="loadInto('before')" style="margin-left: auto"
-            title="把内存状态恢复到此次提交之前；还需点顶栏「提交到设备」才真正生效">
-            撤销此提交
+          <button v-if="record.source !== 'backup'" class="primary" @click="restore"
+            style="margin-left: auto" :disabled="detailLoading"
+            title="把内存状态回溯到此次提交完成后的状态；还需点顶栏「提交到设备」才真正生效。想看此提交之前的状态，请选前一条记录恢复">
+            恢复到此提交
           </button>
-          <button class="primary" @click="loadInto('after')"
-            title="重新应用此次提交的结果到内存；还需点顶栏「提交到设备」才真正生效">
-            重做此提交
+          <button v-else class="danger" @click="revertFromBackup" style="margin-left: auto"
+            title="直接把此时间点的 DB 字节拷贝回 Joyose（文件级恢复，立即生效）">
+            从此备份回滚
           </button>
         </div>
         <div v-if="record.note" class="muted tiny">note: {{ record.note }}</div>
         <div class="panel" style="margin: 0; background: var(--bg-elevated)">
-          <h2 style="font-size: 14px">diff 摘要 <small>{{ record.diff_summary.length }} 条</small></h2>
-          <div style="max-height: 300px; overflow-y: auto">
-            <div v-for="(r, i) in record.diff_summary.slice(0, 500)" :key="i" class="diff-line" :class="r.kind">{{
+          <h2 style="font-size: 14px">变更 <small>{{ diffEntries.length }} 条</small></h2>
+          <div v-if="diffEntries.length === 0" class="muted tiny">（无字段变化）</div>
+          <div v-else style="max-height: 300px; overflow-y: auto">
+            <div v-for="(r, i) in diffEntries.slice(0, 500)" :key="i" class="diff-line" :class="r.kind">{{
               summarize(r) }}</div>
           </div>
-          <div v-if="record.diff_summary.length > 500" class="hint" style="margin-top: var(--space-2)">
-            仅显示前 500 条。完整 diff 请看下方原始 JSON。
+          <div v-if="diffEntries.length > 500" class="hint" style="margin-top: var(--space-2)">
+            仅显示前 500 条。
           </div>
         </div>
-        <details>
-          <summary class="muted tiny">完整 before / after JSON</summary>
-          <pre class="mono"
-            style="background: var(--bg); padding: 10px; border-radius: 6px; max-height: 300px; overflow: auto">{{ JSON.stringify(record.before, null, 2) }}</pre>
-          <pre class="mono"
-            style="background: var(--bg); padding: 10px; border-radius: 6px; max-height: 300px; overflow: auto">{{ JSON.stringify(record.after, null, 2) }}</pre>
-        </details>
       </div>
+      <div v-else-if="detailLoading" class="detail muted tiny">加载中…</div>
+      <div v-else-if="selected" class="detail muted tiny">读取失败，请重试或选其他记录。</div>
       <div v-else class="detail muted tiny">从列表里选一条。</div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import {
   listHistory,
   readHistory,
-  loadFromRecord,
+  restoreToRecord,
   markDirty,
+  pullAll,
 } from '@/state/session';
 import * as bridge from '@/root/bridge';
 import { toast } from '@/state/toast';
@@ -81,6 +80,9 @@ const listing = ref<HistoryFileMeta[]>([]);
 const selected = ref<HistoryFileMeta | null>(null);
 const record = ref<HistoryRecord | null>(null);
 const loading = ref(false);
+const detailLoading = ref(false);
+
+const diffEntries = computed(() => record.value?.delta ?? []);
 
 onMounted(() => refresh());
 
@@ -100,19 +102,51 @@ async function refresh() {
 async function select(name: string) {
   selected.value = listing.value.find((l) => l.name === name) ?? null;
   record.value = null;
+  detailLoading.value = true;
   try {
     record.value = await readHistory(name);
   } catch (err) {
     toast.fromError(err, '读取历史记录失败');
+  } finally {
+    detailLoading.value = false;
   }
 }
 
-function loadInto(which: 'before' | 'after') {
+async function restore() {
   if (!record.value) return;
-  loadFromRecord(record.value, which);
-  markDirty();
-  const title = which === 'before' ? '已加载"撤销此提交"到内存' : '已加载"重做此提交"到内存';
-  toast.info(title, '点顶栏「提交到设备」才会真正写入 DB，并生成一条新的历史记录');
+  detailLoading.value = true;
+  try {
+    await restoreToRecord(record.value.seq);
+    markDirty();
+    toast.info('已恢复到此提交', '点顶栏「提交到设备」才会真正写入 DB，并生成一条新的历史记录');
+  } catch (err) {
+    toast.fromError(err, '恢复失败');
+  } finally {
+    detailLoading.value = false;
+  }
+}
+
+async function revertFromBackup() {
+  if (!record.value || record.value.source !== 'backup') return;
+  const backupName = record.value.note;
+  if (!backupName) {
+    toast.warn('此记录缺少备份名，无法回滚');
+    return;
+  }
+  const ok = await dialog.confirm(`从备份「${backupName}」回滚？`, {
+    detail: '两份 DB 会被覆盖为该备份的字节，立即生效。编辑历史仍保留。',
+    okText: '回滚',
+    destructive: true,
+  });
+  if (!ok) return;
+  try {
+    await bridge.revert(backupName);
+    await bridge.restart().catch(() => null);
+    await pullAll();
+    toast.success('已回滚到备份', backupName);
+  } catch (err) {
+    toast.fromError(err, '回滚失败');
+  }
 }
 
 async function handleClear() {

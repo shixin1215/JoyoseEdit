@@ -33,10 +33,12 @@ import {
   nextSeq,
   buildHistoryFilename,
   parseHistoryFilename,
+  type ConfigSnapshot,
   type HistoryFileMeta,
   type HistoryRecord,
   type HistorySource,
 } from '@/history/store';
+import { diff, applyDelta, invertDelta } from '@/history/diff';
 import { refreshEnvelope } from '@/history/envelope';
 
 export interface SessionState {
@@ -311,7 +313,10 @@ export async function pushAll(opts: PushOptions = {}): Promise<string> {
       await bridge.push('teg', outTeg);
     }
 
-    // write history after successful DB push
+    // write history after successful DB push. v2 records store only the
+    // forward delta (parent -> this); reconstruction walks the chain from
+    // pristineSnapshot. Keeps each file in the KB range.
+    const delta = diff(recordBefore, recordAfter);
     const existing = await bridge.historyList();
     const seq = nextSeq(existing);
     const ts = Math.floor(Date.now() / 1000);
@@ -320,8 +325,7 @@ export async function pushAll(opts: PushOptions = {}): Promise<string> {
       timestamp: ts,
       source: opts.source ?? 'webui',
       note: opts.note ?? '',
-      before: recordBefore,
-      after: recordAfter,
+      delta,
     });
     const fname = buildHistoryFilename(ts, seq);
     await bridge.historySave(fname, JSON.stringify(rec));
@@ -344,15 +348,31 @@ export async function pushAll(opts: PushOptions = {}): Promise<string> {
   }
 }
 
-/** Load a prior history record and replace the in-memory state with its
- * `after` side (or `before` for "revert" semantics). Does not push. */
-export function loadFromRecord(record: HistoryRecord, which: 'before' | 'after'): void {
-  const snap = record[which];
+/** Walk the commit chain from the working tree (`pristineSnapshot`) back to
+ * the post-state of `targetSeq`, applying inverse deltas, then rehydrate
+ * the resulting snapshot into the in-memory state. Semantics mirror
+ * `git checkout <commit>`: you land on the state at the end of that commit.
+ * To see the pre-state of commit N, restore to commit N-1 instead. */
+export async function restoreToRecord(targetSeq: number): Promise<void> {
+  if (!state.pristineSnapshot) {
+    throw new Error('working tree 未初始化，先在概览点刷新');
+  }
+  const meta = await listHistory();
+  const newer = meta.filter((m) => m.seq > targetSeq);
+  if (!meta.some((m) => m.seq === targetSeq)) {
+    throw new Error(`未找到 seq=${targetSeq} 的历史记录`);
+  }
+
+  let snap: ConfigSnapshot = JSON.parse(JSON.stringify(state.pristineSnapshot));
+  for (const m of newer) {
+    const rec = await readHistory(m.name);
+    snap = applyDelta(snap, invertDelta(rec.delta));
+  }
   rehydrateFromSnapshot(snap);
   state.dirty = true;
 }
 
-function rehydrateFromSnapshot(snap: ReturnType<typeof snapshotFromMaps>): void {
+function rehydrateFromSnapshot(snap: ConfigSnapshot): void {
   // snapshot only carries parsed content; preserve meta from current state
   for (const [name, params] of Object.entries(snap.smartp.cloud_config)) {
     if (!state.cloudConfig[name]) continue;
@@ -381,6 +401,26 @@ export async function listHistory(): Promise<HistoryFileMeta[]> {
 
 export async function readHistory(name: string): Promise<HistoryRecord> {
   return JSON.parse(await bridge.historyGet(name));
+}
+
+/**
+ * Write a marker history entry noting that a raw DB backup was taken.
+ * Empty delta = timeline anchor, no state transition. Restoration still
+ * goes through `bridge.revert(backupName)` (file-level DB copy), unrelated
+ * to the commit chain. File size: ~200 bytes.
+ */
+export async function recordBackupCheckpoint(backupName: string): Promise<void> {
+  const existing = await bridge.historyList();
+  const seq = nextSeq(existing);
+  const ts = Math.floor(Date.now() / 1000);
+  const rec = buildRecord({
+    seq,
+    timestamp: ts,
+    source: 'backup',
+    note: backupName,
+    delta: [],
+  });
+  await bridge.historySave(buildHistoryFilename(ts, seq), JSON.stringify(rec));
 }
 
 export function buildHistoryStore() {

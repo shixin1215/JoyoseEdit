@@ -108,7 +108,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue';
+import { computed, defineAsyncComponent, h, onMounted, ref, watch } from 'vue';
 import { state, initialize, pullAll, pushAll } from '@/state/session';
 import { toast } from '@/state/toast';
 import OverviewView from '@/ui/OverviewView.vue';
@@ -117,15 +117,36 @@ import DialogStack from '@/ui/DialogStack.vue';
 import { dialog } from '@/state/dialog';
 import { theme, cycleTheme } from '@/state/theme';
 
-const LockView = defineAsyncComponent(() => import('@/ui/LockView.vue'));
-const GameListView = defineAsyncComponent(() => import('@/ui/GameListView.vue'));
-const FrcView = defineAsyncComponent(() => import('@/ui/FrcView.vue'));
-const MifisrView = defineAsyncComponent(() => import('@/ui/MifisrView.vue'));
-const NovatekView = defineAsyncComponent(() => import('@/ui/NovatekView.vue'));
-const MivkView = defineAsyncComponent(() => import('@/ui/MivkView.vue'));
-const JsonEditorView = defineAsyncComponent(() => import('@/ui/JsonEditorView.vue'));
-const HistoryView = defineAsyncComponent(() => import('@/ui/HistoryView.vue'));
-const ImportExportView = defineAsyncComponent(() => import('@/ui/ImportExportView.vue'));
+// Async view chunks can fail silently in WebView (stale cache hitting a new
+// content-hash 404, or MIME rejection of .js chunks on certain KernelSU
+// manager builds). Without an errorComponent + timeout, <Suspense> just
+// parks the fallback "加载中…" forever. The wrapper surfaces a real error
+// instead so the user knows to refresh.
+const AsyncErrorView = {
+  setup: () => () =>
+    h('div', { class: 'banner error' }, [
+      h('strong', '视图加载失败'),
+      h('span', '资源请求超时或被 WebView 拒绝 — 刷新页面或重装模块后重试。'),
+    ]),
+};
+function asyncView(loader: () => Promise<unknown>) {
+  return defineAsyncComponent({
+    loader: loader as () => Promise<any>,
+    errorComponent: AsyncErrorView,
+    timeout: 15000,
+    delay: 200,
+  });
+}
+
+const LockView = asyncView(() => import('@/ui/LockView.vue'));
+const GameListView = asyncView(() => import('@/ui/GameListView.vue'));
+const FrcView = asyncView(() => import('@/ui/FrcView.vue'));
+const MifisrView = asyncView(() => import('@/ui/MifisrView.vue'));
+const NovatekView = asyncView(() => import('@/ui/NovatekView.vue'));
+const MivkView = asyncView(() => import('@/ui/MivkView.vue'));
+const JsonEditorView = asyncView(() => import('@/ui/JsonEditorView.vue'));
+const HistoryView = asyncView(() => import('@/ui/HistoryView.vue'));
+const ImportExportView = asyncView(() => import('@/ui/ImportExportView.vue'));
 
 type ViewId =
   | 'overview'
