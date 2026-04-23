@@ -3,14 +3,10 @@
 
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="theme-color" content="#111c32" media="(prefers-color-scheme: dark)" />
   <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
-  <!-- Requesting /internal/insets.css tells KernelSU WebView to enable
-       edge-to-edge and inject --safe-area-inset-{top,right,bottom,left} as
-       CSS variables on :root. Outside KernelSU (desktop dev / non-KSU
-       WebView) this 404s silently; the CSS falls back to 0px via var()
-       defaults. See https://github.com/tiann/KernelSU/blob/main/js/README.md -->
   <link rel="stylesheet" type="text/css" href="/internal/insets.css" />
   <title>JoyoseEdit</title>
 </head>

@@ -1,118 +1,90 @@
 <template>
   <div class="stack">
     <div class="panel">
-      <h2>MIFISR<br>
-        <small>customize_game_params.game_mifisr_config + fisr_config (strategy=MIFISR)</small>
-      </h2>
-      <div class="muted tiny">
-        适用于骁龙 8 Elite 2 的小米 17 系列（17 / 17 Pro / 17 Pro Max / 17 Ultra）。
-        MIFISR = <span class="mono">mifi</span>（小米帧插值）+ <span class="mono">misr</span>（小米超分辨率）的混合后端，
-        替代老的 AFME+FSR 组合。每条字符串以
-        <span
-          class="mono">&lt;pkg&gt;_&lt;min&gt;#&lt;target&gt;#&lt;srcFpsList&gt;#&lt;T1&gt;#&lt;T2&gt;#&lt;T3&gt;#&lt;T4&gt;</span>
-        为格式；<span class="mono">-1</span> 表示让驱动自动决定。
+      <h2>MIFISR 画质增强 <small>小米 17 系列（骁龙 8 Elite 2）</small></h2>
+      <div class="hint">
+        每条配置管一款游戏的帧插值 + 超分。字段中 <span class="mono">-1</span> 代表由驱动自动决定。
       </div>
     </div>
 
     <div v-if="!mifisrSwitchOn" class="banner error">
-      <strong>MIFISR 总开关 <span class="mono">fisr_mqs_v2</span> 未开启</strong>
-      <span>必须为 <span class="mono">true</span> 才会让 Joyose 走 MIFISR 后端。否则改再多条目也不会生效。</span>
-      <button class="primary" @click="enableMifisrSwitch">一键开启</button>
+      <strong>MIFISR 总开关未开启</strong>
+      <span>未开启前，下面的条目都不会生效。</span>
+      <div class="banner-actions">
+        <button class="primary" @click="enableMifisrSwitch">一键开启</button>
+      </div>
     </div>
 
     <div v-if="visionBlocked" class="banner error">
       <strong>游戏助手不会显示画质增强面板</strong>
-      <div class="tiny" style="margin-top: 6px; line-height: 1.6">
-        本机 vendor 层未声明
-        <span class="mono">ro.vendor.gpp.frc.support</span> /
-        <span class="mono">ro.vendor.xiaomi.sr.support</span>
-        （当前值：<span class="mono">frc={{ vision?.frc_support || '空' }}</span>、<span class="mono">sr={{ vision?.sr_support
-          || '空' }}</span>），
-        HyperOS <span class="mono">GameBoxVisionEnhanceUtils</span> 的能力检查会返回 false，
-        悬浮窗直接不渲染"插帧 / 超分"勾选框 —— 本页配置多完整都不会生效。
-        <br><br>
-        <strong>修复方法</strong>（需要自己处理，本模块不会自动改系统属性）：
+      <div class="hint">
+        当前 vendor 属性：<span class="mono">frc={{ vision?.frc_support || '空' }}</span>、<span class="mono">sr={{
+          vision?.sr_support || '空' }}</span>。两者都需要为 <span class="mono">true</span>，游戏助手才会渲染插帧 / 超分开关。
+        本模块不会自动改系统属性，可以用下面的命令临时开启（重启后失效）：
         <pre class="mono"
-          style="padding: 8px; background: var(--bg); border-radius: 4px; margin-top: 4px; overflow-x: auto">su -c "resetprop ro.vendor.gpp.frc.support true"
+          style="padding: var(--space-2); background: var(--bg); border-radius: var(--radius-sm); margin-top: var(--space-1); overflow-x: auto">su -c "resetprop ro.vendor.gpp.frc.support true"
 su -c "resetprop ro.vendor.xiaomi.sr.support true"
 am force-stop com.miui.securitycenter</pre>
-        <span class="muted">临时验证（重启失效）用上面；永久方案需要专门的 KSU / magisk 模块在 <span class="mono">post-fs-data.sh</span> 做同样
-          resetprop，或改 <span class="mono">/vendor/build.prop</span>。</span>
+        <span class="muted">永久生效需要另外的 KSU / Magisk 模块在开机阶段写入。</span>
       </div>
     </div>
 
     <div v-else-if="visionPartial" class="banner warn">
       <strong>vendor 能力半就绪</strong>
       <span>
-        <span class="mono">frc={{ vision?.frc_support || '空' }}</span>、<span class="mono">sr={{ vision?.sr_support ||
-          '空' }}</span>
-        —— 悬浮窗只会出现 {{ vision?.frc_support === 'true' ? '"插帧"' : '"超分"' }} 勾选框，另一个依然不会渲染。
+        当前 <span class="mono">frc={{ vision?.frc_support || '空' }}</span>、<span class="mono">sr={{ vision?.sr_support ||
+          '空' }}</span>。游戏助手只会显示 {{ vision?.frc_support === 'true' ? '"插帧"' : '"超分"' }} 开关。
       </span>
     </div>
 
     <div v-else-if="visionReady" class="banner" style="background: var(--surface-ok-bg, var(--bg-elevated))">
       <strong>vendor 层 FRC + SR 已就绪</strong>
-      <span class="tiny muted">
-        <span class="mono">ro.vendor.gpp.frc.support=true</span>、<span
-          class="mono">ro.vendor.xiaomi.sr.support=true</span><br>
-        —— HyperOS 游戏助手会渲染画质增强面板，剩余条件由本页控制。
-      </span>
+      <span class="hint">游戏助手会显示画质增强面板，其余条件由本页控制。</span>
     </div>
 
     <div v-if="mivkStatus?.status === 'ok'" class="banner" style="background: var(--surface-ok-bg, var(--bg-elevated))">
-      <strong>渲染通道 mifi / misr 已启用</strong>
-      <span class="tiny muted">
-        当前包 <span class="mono">{{ currentParsed?.pkg }}</span>：
-        <span class="mono">mifi:{{ mivkStatus.mifi }}</span>、<span class="mono">misr:{{ mivkStatus.misr }}</span>
-        —— 画面侧的帧插值 / 超分 hook 会注入；与策略层配合后效果完整。level 调整请去 MIVK 面板。
+      <strong>渲染通道已启用</strong>
+      <span class="hint">
+        {{ currentParsed?.pkg }}：<span class="mono">mifi:{{ mivkStatus.mifi }}</span>、<span class="mono">misr:{{
+          mivkStatus.misr }}</span>，画面效果会正常生效。
       </span>
     </div>
     <div v-else-if="mivkStatus?.status === 'partial'" class="banner warn">
       <strong>渲染通道仅半启用</strong>
-      <span class="tiny">
-        当前包 <span class="mono">{{ currentParsed?.pkg }}</span>：
-        <span class="mono">mifi:{{ mivkStatus.mifi }}</span>、<span class="mono">misr:{{ mivkStatus.misr }}</span>
-        —— level 为 0 的那一路的渲染 hook 不注入（但 MIFISR 策略能正常激活）。想看到完整的插帧 + 超分效果，
-        需要两者都 &gt; 0（17 Ultra 原神 <span class="mono">31/31</span>、星铁 <span class="mono">31/7</span>）。
-        前往 MIVK 面板把 0 的那个改为 <span class="mono">31</span>。
+      <span class="hint">
+        {{ currentParsed?.pkg }}：<span class="mono">mifi:{{ mivkStatus.mifi }}</span>、<span class="mono">misr:{{
+          mivkStatus.misr }}</span>。等级为 0 的那一路画面不生效。
+        推荐配置：原神 <span class="mono">31/31</span>、星铁 <span class="mono">31/7</span>。去 MIVK 面板调整即可。
       </span>
     </div>
     <div v-else-if="mivkStatus?.status === 'off'" class="banner error">
-      <strong>渲染通道 mifi / misr 都为 0</strong>
-      <span class="tiny">
-        当前包 <span class="mono">{{ currentParsed?.pkg }}</span> 在 <span class="mono">mivk_settings</span> 里存在、
-        但 <span class="mono">support_module</span> 没激活 <span class="mono">mifi</span> / <span class="mono">misr</span>。
-        <strong>MIFISR 策略仍会激活</strong>（Joyose 策略层不依赖这个配置），
-        但渲染层 hook 不注入，画面上看不到插帧 / 超分效果。去 MIVK 面板把两者 level 改为
-        <span class="mono">31</span> 才能让"策略 + 画面"双到位。
+      <strong>渲染通道未启用</strong>
+      <span class="hint">
+        {{ currentParsed?.pkg }} 的 <span class="mono">mifi</span> / <span class="mono">misr</span> 等级都为 0。
+        MIFISR 策略可以激活，但画面看不到效果。去 MIVK 面板把两者等级改为 <span class="mono">31</span>。
       </span>
     </div>
     <div v-else-if="mivkStatus?.status === 'missing'" class="banner error">
-      <strong>MIVK 里没有 <span class="mono">{{ currentParsed?.pkg }}</span> 条目</strong>
-      <span class="tiny">
-        <span class="mono">mivk_settings.app_params</span> 里找不到该包的 <span class="mono">app_cmdlines</span>，
-        渲染 hook 注入该进程时没有对应 <span class="mono">support_module</span> 可读，mifi / misr module 不会启用。
-        MIFISR 策略仍可激活，但画面上不会出现插帧 / 超分效果。请先在 MIVK 面板添加该包条目。
+      <strong>MIVK 面板尚未配置 {{ currentParsed?.pkg }}</strong>
+      <span class="hint">
+        MIFISR 策略可以激活，但画面不会生效。请先在 MIVK 面板添加该包条目。
       </span>
     </div>
 
     <div v-if="whitelistMatch" class="banner" style="background: var(--surface-ok-bg, var(--bg-elevated))">
-      <strong>该游戏在 libmigl / libmivk 白名单内</strong>
-      <span class="tiny muted">
-        匹配到 <strong>{{ whitelistMatch.name }}</strong>（代号 <span class="mono">{{ whitelistMatch.code }}</span>，
-        后端：<span class="mono">{{ whitelistMatch.backends.join(' / ') }}</span>）。
+      <strong>该游戏在画面生效白名单内</strong>
+      <span class="hint">
+        匹配到 <strong>{{ whitelistMatch.name }}</strong>，后端：<span class="mono">{{ whitelistMatch.backends.join(' / ')
+          }}</span>。
         <template v-if="whitelistMatch.source === 'inferred'">
-          <br>⚠ 此游戏的包名未从反编译字符串表直接确认（基于公开资料推断），若实机未激活请反馈。
+          <br>⚠ 识别结果基于公开资料推断，若实机未激活请反馈。
         </template>
       </span>
     </div>
     <div v-else-if="currentParsed?.pkg" class="banner warn">
       <strong>该包不在已知白名单</strong>
-      <span class="tiny">
-        <span class="mono">{{ currentParsed.pkg }}</span> 没出现在 libmigl / libmivk 的已知游戏列表里。
-        Joyose 策略层仍会接受配置并推 event 11，但**渲染层 hook 不会为该包注册 Processor** ——
-        画面上不会出现插帧 / 超分效果。已知白名单见
-        <span class="mono">src/presets/mifisr/known-games.ts</span>；若该游戏实机确实有效，请反馈补充。
+      <span class="hint">
+        MIFISR 策略可以激活，但画面上不会出现插帧 / 超分效果。若实机有效请反馈，便于后续补充。
       </span>
     </div>
 
@@ -127,8 +99,8 @@ am force-stop com.miui.securitycenter</pre>
           <strong>{{ displayPkg(s) }}</strong>
           <span class="sub">{{ s }}</span>
         </button>
-        <div v-if="entries.length === 0" class="muted tiny" style="padding: 12px">
-          没有条目 —— 点击 "新建条目" 添加第一个，或 "从预设" 选一款 Ultra 同款游戏。
+        <div v-if="entries.length === 0" class="hint" style="padding: var(--space-3)">
+          没有条目。点击"新建条目"添加，或从预设选一款 Ultra 同款游戏。
         </div>
       </div>
 
@@ -147,46 +119,45 @@ am force-stop com.miui.securitycenter</pre>
 
         <div class="grid-2">
           <div class="field">
-            <label class="label">minFps（-1 = 驱动自动）</label>
+            <label class="label">最小帧率 (-1 为自动)</label>
             <input type="number" step="1" v-model.number="currentParsed.minFps" @input="rewrite" />
           </div>
           <div class="field">
-            <label class="label">targetFps（-1 = 驱动自动）</label>
+            <label class="label">目标帧率 (-1 为自动)</label>
             <input type="number" step="1" v-model.number="currentParsed.targetFps" @input="rewrite" />
           </div>
         </div>
 
         <div class="field">
-          <label class="label">srcFps 列表（逗号分隔，原神 <span class="mono">45,60</span> / 星铁 <span
-              class="mono">60</span>）</label>
+          <label class="label">源帧率（逗号分隔，例 <span class="mono">45,60</span>）</label>
           <input v-model="srcFpsText" @change="rewriteFromSrcText" />
-          <div class="tiny muted" style="margin-top: 4px">
-            MIFISR 不接受低于 45fps 的源帧率（<span class="mono">24</span> / <span class="mono">30</span> 会在校验时告警）。
+          <div class="hint">
+            低于 45fps 的源帧率不被支持（<span class="mono">24</span> / <span class="mono">30</span> 会在校验时告警）。
           </div>
         </div>
 
         <div class="grid-4">
           <div class="field">
-            <label class="label">T1 (降档阈值)</label>
+            <label class="label">温控 T1 (℃)</label>
             <input type="number" step="1" v-model.number="currentParsed.t1" @input="rewrite" />
           </div>
           <div class="field">
-            <label class="label">T2</label>
+            <label class="label">温控 T2 (℃)</label>
             <input type="number" step="1" v-model.number="currentParsed.t2" @input="rewrite" />
           </div>
           <div class="field">
-            <label class="label">T3</label>
+            <label class="label">温控 T3 (℃)</label>
             <input type="number" step="1" v-model.number="currentParsed.t3" @input="rewrite" />
           </div>
           <div class="field">
-            <label class="label">T4 (最低)</label>
+            <label class="label">温控 T4 (℃，最低)</label>
             <input type="number" step="1" v-model.number="currentParsed.t4" @input="rewrite" />
           </div>
         </div>
 
         <div class="row">
-          <button class="ghost" @click="applyThermal(47, 45, 44, 42)">标准温控 47/45/44/42 (Ultra 同款)</button>
-          <button class="ghost" @click="applyThermal(95, 93, 92, 90)" title="社区未验证；散热足够激进时才建议">激进温控
+          <button class="ghost" @click="applyThermal(47, 45, 44, 42)">标准温控 47/45/44/42（Ultra 同款）</button>
+          <button class="ghost" @click="applyThermal(95, 93, 92, 90)" title="散热充足时才建议；未经社区验证">激进温控
             95/93/92/90（未验证）</button>
         </div>
 
@@ -195,7 +166,7 @@ am force-stop com.miui.securitycenter</pre>
           <div class="mono" style="font-size: 12px; word-break: break-all">
             {{ entries[selected] }}
           </div>
-          <div v-if="issues.length" class="stack" style="margin-top: 8px">
+          <div v-if="issues.length" class="stack" style="margin-top: var(--space-2)">
             <div v-for="(i, k) in issues" :key="k" class="tiny"
               :style="{ color: i.severity === 'warn' ? 'var(--text-muted)' : 'var(--warn)' }">
               <span v-if="i.severity === 'warn'">ℹ</span><span v-else>⚠</span>
@@ -205,41 +176,33 @@ am force-stop com.miui.securitycenter</pre>
         </div>
 
         <div class="panel" style="margin: 0">
-          <h2 style="font-size: 14px">fisr_config 路由<br>
-            <small>逐条添加 FI / SR / FISR，按需组合</small>
-          </h2>
+          <h2 style="font-size: 14px">画质增强策略 <small>按需组合 FI / SR / FISR</small></h2>
           <div class="row">
             <button @click="addFisrFeature('FI')" :disabled="hasFeature('FI')"
-              :title="hasFeature('FI') ? '已存在，重复添加被阻止' : '⚠ 实验：Ultra 云控未下发此 feature（status=1），官方未验证；可能出现 artifact / 输入延迟 / 功耗升高'">
+              :title="hasFeature('FI') ? '已存在' : '⚠ 实验性：可能出现画面异常 / 输入延迟 / 功耗上升'">
               + FI（仅插帧）⚠
             </button>
             <button @click="addFisrFeature('SR')" :disabled="hasFeature('SR')"
-              :title="hasFeature('SR') ? '已存在，重复添加被阻止' : '添加仅超分 policy（Ultra 云控原厂下发的唯一配置，strategy=MIFISR）'">
+              :title="hasFeature('SR') ? '已存在' : '添加仅超分配置（Ultra 同款）'">
               + SR（仅超分）
             </button>
             <button @click="addFisrFeature('FISR')" :disabled="hasFeature('FISR')"
-              :title="hasFeature('FISR') ? '已存在，重复添加被阻止' : '⚠ 实验：Ultra 云控未下发合体模式（status=4），官方未验证；插帧+超分叠加的功耗 / 延迟风险最高'">
+              :title="hasFeature('FISR') ? '已存在' : '⚠ 实验性：插帧 + 超分同时开启，功耗 / 延迟风险最高'">
               + FISR（合体）⚠
             </button>
-            <label class="row" style="margin-left: auto; gap: 6px">
+            <label class="row" style="margin-left: auto; gap: var(--space-1)">
               <input type="checkbox" v-model="alsoUpdateMqs" />
-              <span class="tiny muted">添加时同步写入 <span class="mono">mqs_enhance_list</span></span>
+              <span class="hint">同步写入 <span class="mono">mqs_enhance_list</span></span>
             </label>
           </div>
-          <div class="tiny muted" style="margin-top: 4px">
-            每条 <span class="mono">feature</span> 都推荐绑 <span class="mono">strategy=MIFISR</span>。Joyose 在
-            <span class="mono">setEnhanceStatus</span> 时会把 MIFISR 实例按 status 码（FI=1 / SR=2 / FISR=4）
-            动态校准，一个 MIFISR 能扮演三种 feature，无需按 feature 区分 strategy；17 Ultra 云控原厂
-            下发的就是 <span class="mono">SR + MIFISR</span>。
-          </div>
-          <table class="table" v-if="routedPolicies && routedPolicies.length" style="margin-top: 8px">
+          <table class="table" v-if="routedPolicies && routedPolicies.length" style="margin-top: var(--space-2)">
             <thead>
               <tr>
-                <th>feature</th>
-                <th>strategy</th>
-                <th style="white-space: nowrap">均衡 / 性能 <small class="muted">(bitmap)</small></th>
-                <th style="white-space: nowrap">support_max_refresh <small class="muted">(MGAME#TGAME)</small></th>
-                <th>disable_scene_list</th>
+                <th>类型</th>
+                <th>策略</th>
+                <th style="white-space: nowrap">均衡 / 性能</th>
+                <th style="white-space: nowrap">最高刷新率 <small class="muted">(均衡#性能)</small></th>
+                <th>禁用场景</th>
                 <th></th>
               </tr>
             </thead>
@@ -259,122 +222,86 @@ am force-stop com.miui.securitycenter</pre>
                     <span class="tiny">性能</span>
                   </label>
                   <span class="tiny muted mono" style="margin-left: 8px">{{ (p.support_game_mode as string) ?? '—'
-                    }}</span>
+                  }}</span>
                 </td>
                 <td>
-                  <input v-if="needsMaxRefresh(p)" type="text" class="mono"
-                    :class="maxRefreshMissing(p) ? 'warn' : ''"
+                  <input v-if="needsMaxRefresh(p)" type="text" class="mono" :class="maxRefreshMissing(p) ? 'warn' : ''"
                     style="width: 92px; padding: 2px 6px; font-size: 12px"
                     :value="(p.support_max_refresh as string) ?? ''"
-                    :placeholder="maxRefreshMissing(p) ? 'default=60 ⚠' : '120#120'"
+                    :placeholder="maxRefreshMissing(p) ? 'default=60 ⚠' : '60#120'"
                     @change="(e: Event) => setMaxRefresh(p, (e.target as HTMLInputElement).value)" />
-                  <span v-else class="tiny muted" title="SR 是空间超分，Joyose l.i.n() 的 SR 分支不读此字段">—</span>
+                  <span v-else class="tiny muted" title="超分不使用此字段">—</span>
                 </td>
                 <td class="mono tiny">{{ disableSceneText(p) || '—' }}</td>
                 <td>
                   <button class="danger ghost" @click="removeFisrFeature(String(p.feature))"
-                    :title="`移除 ${p.feature} policy`">删除</button>
+                    :title="`移除 ${p.feature}`">删除</button>
                 </td>
               </tr>
             </tbody>
           </table>
-          <div v-else class="muted tiny">该包还没有 fisr_config 路由 —— 点上面的 + FI / + SR / + FISR 按钮按需添加。</div>
+          <div v-else class="hint">该包还没有画质增强策略。点上面的 + FI / + SR / + FISR 按需添加。</div>
 
-          <div v-if="hasMissingMaxRefresh" class="banner warn" style="margin-top: 8px">
-            <strong>⚠ FI / FISR policy 缺 <span class="mono">support_max_refresh</span> 字段。</strong>
-            Joyose 的 <span class="mono">l.i.r()</span> 会用此字段 clamp FI 倍帧目标刷新率，字段缺失时**默认 60Hz** ——
-            意味着 FI 策略激活了但实际没倍帧（60fps 源 × 2 = 120fps 被 <span class="mono">min(120, 60) = 60</span> 削回去）。
-            <button class="primary" style="margin-left: 8px" @click="fillMaxRefresh('120#120')" :disabled="state.loading">
-              一键填 <span class="mono">120#120</span>
-            </button>
-            <span class="tiny muted" style="margin-left: 6px">（144Hz 屏可手动改 144#144）</span>
+          <div v-if="hasMissingMaxRefresh" class="banner warn">
+            <strong>⚠ FI / FISR 未设置最高刷新率</strong>
+            <span class="hint">字段缺失时默认为 60Hz，FI 倍帧会被削回 60fps。144Hz 屏请改为 <span class="mono">60#144</span>。</span>
+            <div class="banner-actions">
+              <button class="primary" @click="fillMaxRefresh('60#120')" :disabled="state.loading">
+                一键填 <span class="mono">60#120</span>
+              </button>
+            </div>
           </div>
 
-          <div v-if="hasNoFiSr" class="banner error" style="margin-top: 8px">
-            <strong>⚠ FI 和 SR policy 都缺失 —— 游戏助手整个画质增强面板会消失。</strong>
-            反编译 <span class="mono">k.b.isSupportEnhance</span> 里 <span class="mono">k.e.s(pkg) = o(pkg,false) || p(pkg,false)</span>
-            只查 FI 或 SR feature 是否在列表里，**完全不看 FISR**。列表里只剩 FISR 时 <span class="mono">s()</span> 返回 false，
-            <span class="mono">isSupportEnhance</span> 返回 0，securitycenter 端 <span class="mono">f25826d = false</span>，面板不渲染。
-            <button class="primary" style="margin-left: 8px" @click="addFisrFeature('SR')" :disabled="state.loading">
-              补一条 SR policy
-            </button>
+          <div v-if="hasNoFiSr" class="banner error">
+            <strong>⚠ 缺少 FI / SR 策略，画质增强面板不会显示</strong>
+            <span class="hint">只保留 FISR 是无效的，必须至少有 FI 或 SR 之一。</span>
+            <div class="banner-actions">
+              <button class="primary" @click="addFisrFeature('SR')" :disabled="state.loading">补一条 SR</button>
+            </div>
           </div>
 
-          <div v-else-if="hasUselessFisr" class="banner warn" style="margin-top: 8px">
-            <strong>⚠ FISR policy 存在但缺 {{ missingFisrSibling }}，等于没效。</strong>
-            securitycenter UI 只渲染"智能插帧 / 超级分辨率"两个勾选框（反编译 <span class="mono">GameBoxVisionEnhanceUtils.s()</span>
-            返回的 list 固定就这两项，没有独立"FISR"按钮）。FISR 激活的唯一路径是"同时勾 FI + SR"触发
-            <span class="mono">t0(fi=true, sr=true, 4)</span>。{{ missingFisrSibling }} policy 缺失时 UI 压根不显示
-            那个勾选框，合体条件永远不满足 —— FISR policy 白存。
-            <button class="primary" style="margin-left: 8px"
-              @click="addFisrFeature(missingFisrSibling as 'FI' | 'SR')" :disabled="state.loading">
-              补一条 {{ missingFisrSibling }} policy
-            </button>
+          <div v-else-if="hasUselessFisr" class="banner warn">
+            <strong>⚠ FISR 需要搭配 {{ missingFisrSibling }} 才能生效</strong>
+            <span class="hint">合体模式必须同时存在 FI + SR，仅留 FISR 是无意义的。</span>
+            <div class="banner-actions">
+              <button class="primary" @click="addFisrFeature(missingFisrSibling as 'FI' | 'SR')"
+                :disabled="state.loading">补一条 {{ missingFisrSibling }}</button>
+            </div>
           </div>
 
-          <div v-if="resolutionLeavePolicies.length" class="banner" style="margin-top: 8px">
-            <strong>ℹ <span class="mono">support_resolution_leave</span> 限制分辨率白名单</strong>
-            — 下列 policy 填了这个字段：<span class="mono">{{ resolutionLeaveSummary }}</span>。
-            反编译 <span class="mono">l.i.t(pkg, status)</span> 在激活前会把当前游戏渲染分辨率 level 和这份逗号列表对比，
-            不命中就打 <span class="mono">"invalid render resolution, ... ignore"</span> warning 并**静默拒绝激活**。
-            Ultra 原厂 hkrpg SR policy 写的就是 <span class="mono">"4"</span>（只允许最高档）。
-            <strong>如果你在游戏里切了画质档位后发现勾选框消失，先怀疑这个字段</strong> —
-            去 JsonEditorView 把它删掉就无限制，或者填进当前用的 level。
-          </div>
-
-          <div v-if="hasFisrBreaksFi" class="banner warn" style="margin-top: 8px">
-            <strong>⚠ 存在 <span class="mono">FISR</span> policy 会导致 FI（智能插帧）画面异常，不建议添加。</strong>
-            实机测试（2026-04-23，星铁）确认：<span class="mono">fisr_config</span> 同时含
-            <span class="mono">FI + SR + FISR</span> 三条 policy 时，libmivk 的
-            <span class="mono">MiVkStarRailMIFIModule</span> 会走"合体共享分支"注册 FI hook，
-            motion vector 采样按 SR 升采样后的坐标系对齐。此时无论单开 FI 还是 FI+SR 合体，
-            FI 部分都会出 artifact；SR 单开不受影响。
-            只保留 <span class="mono">FI + SR</span> 两条（无 FISR）则 FI 和 SR 分别单开都正常。
-            Ultra 云控原厂对每款游戏只下发 <span class="mono">feature: SR</span>
-            正是规避此问题。
-            <button class="primary" style="margin-left: 8px"
-              @click="removeFisrFeature('FISR')" :disabled="state.loading">
-              删除 FISR policy
-            </button>
+          <div v-if="resolutionLeavePolicies.length" class="banner">
+            <strong>ℹ 该配置限制了分辨率白名单</strong>
+            <span class="hint">
+              受限策略：<span class="mono">{{ resolutionLeaveSummary }}</span>。
+              切换游戏画质档位后若勾选框消失，多半是该字段导致；可在 JSON 编辑页删除或改为当前档位。
+            </span>
           </div>
 
           <div v-if="routedPolicies && routedPolicies.length" class="row"
-            style="margin-top: 10px; gap: 8px; align-items: flex-start; border-top: 1px solid var(--border); padding-top: 10px">
-            <label class="row" style="gap: 6px">
+            style="gap: var(--space-2); align-items: flex-start; border-top: 1px solid var(--border); padding-top: var(--space-3)">
+            <label class="row" style="gap: var(--space-1)">
               <input type="checkbox" :checked="currentSupportVk"
                 @change="(e: Event) => toggleSupportVk((e.target as HTMLInputElement).checked)" />
-              <strong class="mono">support_vk</strong>
+              <strong>支持 Vulkan</strong>
             </label>
-            <div class="tiny muted" style="flex: 1">
+            <div class="hint" style="flex: 1">
               <span v-if="isHkrpg" style="color: var(--warn)"><strong>★ 星铁必开</strong>：</span>
-              本 group 级别的开关，反编译 <span class="mono">k.b.isSupportEnhance</span>
-              显示 Joyose **只对 <span class="mono">com.miHoYo.hkrpg</span>** 做了"是否 VK 模式 + support_vk"
-              的联合守卫：游戏启动在 GL 菜单时勾选框会显示，登录进入 Vulkan pipeline 后
-              如果 <span class="mono">support_vk != true</span>，日志打印
-              <span class="mono">"hkrpg in vk mode but not support vk"</span> 并把勾选框隐藏。
-              其他游戏没这个守卫，开不开都一样，但打开也无害。
+              该开关目前只对星铁生效。星铁登录进入 Vulkan 模式后若未开启，画质开关会消失；
+              其他游戏不受影响，打开也无害。
             </div>
           </div>
         </div>
 
         <div class="panel" style="margin: 0; background: var(--bg-elevated)">
-          <div class="tiny muted">
-            提示：本页所有 policy 默认绑 <span class="mono">strategy=MIFISR</span>（对齐 17 Ultra 云控原厂下发），
-            MIFISR 不读 <span class="mono">dp_fi_config</span> —— 本页不会自动写它。如果在 JsonEditorView 里手动
-            把某条 policy 的 strategy 改成 <span class="mono">DMI</span>，记得同步维护 <span class="mono">customize_game_params.dp_fi_config</span>
-            里对应包名的 <span class="mono">&lt;pkg&gt;_&lt;srcFps,targetFps&gt;</span> 条目，否则 DMI 激活时会静默中止。
-            <br><br>
-            另外，Joyose 的 MIFISR 策略层本身不依赖 MIVK —— 本页配齐
-            <span class="mono">customize_game_params</span> + <span class="mono">fisr_config</span> 就能让策略激活。
-            但画面上真正看到帧插值 / 超分效果还需要 <strong>MIVK / MIGL</strong> 面板里把对应 app 的
-            <span class="mono">support_module</span> 中 <span class="mono">mifi</span> 和 <span class="mono">misr</span>
-            的 level 从 <span class="mono">0</span> 改成 <span class="mono">31</span>（17 Ultra 同款）—— 那是独立的渲染
-            hook 注入通道，和策略层是两条并列开关。
+          <div class="hint">
+            本页的策略统一为 MIFISR，与官方下发一致。想让画面真正看到插帧 / 超分效果，
+            还需要去 <strong>MIVK 面板</strong>把对应游戏的 <span class="mono">mifi</span> / <span class="mono">misr</span>
+            等级改为 <span class="mono">31</span>（Ultra 同款）。
           </div>
         </div>
       </div>
 
-      <div v-else class="detail muted tiny">在左侧选一条，或点击"新建条目"。</div>
+      <div v-else class="detail hint">在左侧选一条，或点击"新建条目"。</div>
     </div>
   </div>
 </template>
@@ -649,17 +576,6 @@ const resolutionLeaveSummary = computed(() =>
     .map((p) => `${p.feature}=${p.support_resolution_leave}`)
     .join(', '),
 );
-
-// FISR policy 的存在会让 libmivk MiVkStarRailMIFIModule 分叉 FI hook 到"合体共享
-// 分支",导致开 FI 画面异常(2026-04-23 星铁实测)。只保留 FI+SR 两条时
-// FI 和 SR 单开都正常。和 hasUselessFisr 互斥 — 只在三条都在时提示。
-const hasFisrBreaksFi = computed(() => {
-  const list = routedPolicies.value ?? [];
-  const hasFi = list.some((p) => p.feature === 'FI');
-  const hasSr = list.some((p) => p.feature === 'SR');
-  const hasFisr = list.some((p) => p.feature === 'FISR');
-  return hasFi && hasSr && hasFisr;
-});
 
 function ensureGameBooster(): any {
   const cc = state.cloudConfig.booster_config;

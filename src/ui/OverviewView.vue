@@ -6,11 +6,11 @@
         <button class="ghost" @click="handleRefresh" :disabled="state.loading">刷新</button>
         <button class="primary" @click="handleBackup" :disabled="state.loading">立即备份</button>
       </div>
-      <div class="muted tiny">
+      <div class="hint">
         目标包：<span class="mono">{{ state.stat?.pkg ?? 'com.xiaomi.joyose' }}</span><br>
         数据目录：<span class="mono">{{ state.stat?.data_root ?? '/data/adb/joyose-edit' }}</span>
       </div>
-      <div class="grid-2" style="margin-top: 12px">
+      <div class="grid-2" style="margin-top: var(--space-3)">
         <DbStatCard label="SmartP.db" :stat="state.stat?.smartp" />
         <DbStatCard label="teg_config.db" :stat="state.stat?.teg" />
       </div>
@@ -52,8 +52,8 @@
               version: {{ cfg.meta.version ?? '—' }}
             </span>
           </div>
-          <div class="muted tiny">
-            header.version: <span class="mono">{{ cfg.params?.header?.version ?? '—' }}</span>
+          <div class="hint">
+            参数头版本：<span class="mono">{{ cfg.params?.header?.version ?? '—' }}</span>
           </div>
         </div>
       </div>
@@ -61,11 +61,11 @@
 
     <div class="panel">
       <h2>备份</h2>
-      <div class="muted tiny">
+      <div class="hint">
         已有备份：<strong>{{ state.stat?.backup_count ?? 0 }}</strong> 份　·
         已有历史：<strong>{{ state.stat?.history_count ?? 0 }}</strong> 条
       </div>
-      <div class="btn-row" style="margin-top: 8px;">
+      <div class="btn-row" style="margin-top: var(--space-2);">
         <button @click="handleBackup">立即备份</button>
         <button class="danger" @click="handleRevertLatest">回滚到最近备份</button>
       </div>

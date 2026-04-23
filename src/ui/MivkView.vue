@@ -1,20 +1,17 @@
 <template>
   <div class="stack">
     <div class="panel">
-      <h2>MIVK / MIGL<br>
-        <small>vrs / hsre / drr / gmem / mifi / misr / afme 等</small>
-      </h2>
-      <div class="muted tiny">
-        这两个键承载渲染模块的细化参数（并非主插帧通道）。
-        <span class="mono">support_module</span> 里每一项 <span class="mono">name:level</span>
-        代表 module 等级：<strong>0 = 关</strong>、<strong>1–7 = 等级</strong>、<strong>31 = 强制</strong>。
+      <h2>渲染模块强度 <small>MIVK / MIGL</small></h2>
+      <div class="hint">
+        配置每个渲染模块的开启等级。<strong>0 = 关闭</strong>、<strong>1–7 = 分级启用</strong>、<strong>31 = 强制开启</strong>。
+        这里只是渲染层开关；MIFISR 策略层配置请去 MIFISR 面板。
       </div>
       <div class="row">
-        <label class="row" style="gap: 6px">
-          <span class="tiny muted">通道</span>
+        <label class="row" style="gap: var(--space-1)">
+          <span class="hint">通道</span>
           <select v-model="channel">
-            <option value="mivk">MIVK (Vulkan)</option>
-            <option value="migl">MIGL (OpenGL)</option>
+            <option value="mivk">MIVK（Vulkan）</option>
+            <option value="migl">MIGL（OpenGL）</option>
           </select>
         </label>
         <button class="primary" @click="addBlank">+ 新建条目</button>
@@ -28,7 +25,7 @@
           <strong>{{ (entry as any)[nameKey(channel)] }}</strong>
           <span class="sub">{{ ((entry as any)[cmdlinesKey(channel)] ?? []).join(', ') }}</span>
         </button>
-        <div v-if="entries.length === 0" class="muted tiny" style="padding: 12px">
+        <div v-if="entries.length === 0" class="hint" style="padding: var(--space-3)">
           该通道没有条目。点击"新建条目"添加。
         </div>
       </div>
@@ -41,25 +38,25 @@
 
         <div class="grid-2">
           <div class="field">
-            <label class="label">app / game 短名</label>
+            <label class="label">应用 / 游戏短名</label>
             <input :value="(currentEntry as any)[nameKey(channel)]"
               @change="(e: Event) => setName(((e.target as HTMLInputElement)).value)" />
           </div>
           <div class="field">
-            <label class="label">checkMainInfo</label>
+            <label class="label">主检测信息（checkMainInfo）</label>
             <input :value="currentEntry.xrender_config?.checkMainInfo ?? ''"
               @change="(e: Event) => setCheckMainInfo(((e.target as HTMLInputElement)).value)" />
           </div>
         </div>
 
         <div class="field">
-          <label class="label">{{ cmdlinesKey(channel) }}（包名，逗号或换行分隔）</label>
+          <label class="label">匹配包名（逗号或换行分隔）</label>
           <textarea rows="2" :value="((currentEntry as any)[cmdlinesKey(channel)] ?? []).join('\n')"
             @change="(e: Event) => setCmdlines(((e.target as HTMLTextAreaElement)).value)" />
         </div>
 
         <div class="panel" style="margin: 0; background: var(--bg-elevated)">
-          <h2 style="font-size: 14px">support_module</h2>
+          <h2 style="font-size: 14px">模块开关 <small>support_module</small></h2>
           <table class="table">
             <tbody>
               <tr v-for="m in modules" :key="m.name">
@@ -78,7 +75,7 @@
               </tr>
             </tbody>
           </table>
-          <div class="row" style="margin-top: 6px">
+          <div class="row" style="margin-top: var(--space-2)">
             <select v-model="newModuleName">
               <option v-for="n in availableModuleNames" :key="n" :value="n">{{ n }}</option>
             </select>
@@ -86,13 +83,13 @@
               <option v-for="lv in [0, 1, 2, 3, 4, 5, 6, 7, 31]" :key="lv" :value="lv">{{ lv === 0 ? '0 (关)' : lv === 31
                 ? '31 (强制) ' : `${lv}` }}</option>
             </select>
-            <button class="primary" @click="addModule">+ 添加 module</button>
+            <button class="primary" @click="addModule">+ 添加模块</button>
           </div>
         </div>
 
         <div class="panel" style="margin: 0">
-          <h2 style="font-size: 14px">module 参数块 <small>每个 module 一个顶层字段</small></h2>
-          <div v-for="name in moduleBlockKeys" :key="name" style="margin-bottom: 10px">
+          <h2 style="font-size: 14px">模块参数块 <small>高级：按模块名展开的 JSON 块</small></h2>
+          <div v-for="name in moduleBlockKeys" :key="name" style="margin-bottom: var(--space-3)">
             <div class="row">
               <strong class="mono">{{ name }}</strong>
               <button class="ghost" @click="removeBlock(name)">删除块</button>
@@ -105,11 +102,11 @@
             <select v-model="newBlockName">
               <option v-for="n in suggestBlockNames" :key="n" :value="n">{{ n }}</option>
             </select>
-            <button class="primary" @click="addBlock">+ 添加参数块</button>
+            <button class="primary" @click="addBlock">+ 添加模块块</button>
           </div>
         </div>
       </div>
-      <div v-else class="detail muted tiny">在左侧选一条。</div>
+      <div v-else class="detail hint">在左侧选一条。</div>
     </div>
   </div>
 </template>

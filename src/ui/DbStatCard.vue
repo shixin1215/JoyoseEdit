@@ -1,12 +1,12 @@
 <template>
   <div class="panel" style="margin-bottom: 0">
     <strong>{{ label }}</strong>
-    <div v-if="!stat || !stat.exists" class="muted tiny">未找到</div>
-    <div v-else class="stack tiny muted" style="gap: 4px; margin-top: 6px">
-      <div><span class="dim">path:</span> <span class="mono">{{ stat.path }}</span></div>
-      <div><span class="dim">size:</span> <span class="mono">{{ formatSize(stat.size) }}</span></div>
-      <div><span class="dim">mtime:</span> <span class="mono">{{ formatTime(stat.mtime) }}</span></div>
-      <div><span class="dim">uid/gid:</span> <span class="mono">{{ stat.uid }}:{{ stat.gid }}</span></div>
+    <div v-if="!stat || !stat.exists" class="hint">未找到</div>
+    <div v-else class="stack hint" style="gap: var(--space-1); margin-top: var(--space-2)">
+      <div><span class="dim">路径：</span><span class="mono">{{ stat.path }}</span></div>
+      <div><span class="dim">大小：</span><span class="mono">{{ formatSize(stat.size) }}</span></div>
+      <div><span class="dim">修改时间：</span><span class="mono">{{ formatTime(stat.mtime) }}</span></div>
+      <div><span class="dim">属主：</span><span class="mono">{{ stat.uid }}:{{ stat.gid }}</span></div>
     </div>
   </div>
 </template>

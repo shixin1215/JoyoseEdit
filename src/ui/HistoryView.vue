@@ -1,16 +1,12 @@
 <template>
   <div class="stack">
     <div class="panel">
-      <h2>编辑历史<br>
-        <small>每次提交都是一条新记录</small>
-      </h2>
-      <div class="muted tiny">
-        全部历史存放于 <span class="mono">/data/adb/joyose-edit/history/</span>，
-        按 <span class="mono">&lt;epoch&gt;-&lt;seq&gt;.json</span> 命名。
-        回滚会把一条历史的 <span class="mono">before</span> / <span class="mono">after</span> 加载到内存，
-        再由你决定是否"提交到设备"生效；回滚本身**不会**删除任何历史。
+      <h2>编辑历史 <small>每次提交都是一条新记录</small></h2>
+      <div class="hint">
+        历史保存在 <span class="mono">/data/adb/joyose-edit/history/</span>。
+        回滚会把所选记录加载到内存，由你决定是否提交到设备；回滚<strong>不会</strong>删除任何历史。
       </div>
-      <div class="row" style="margin-top: 8px">
+      <div class="row" style="margin-top: var(--space-2)">
         <button class="ghost" @click="refresh" :disabled="loading">刷新</button>
         <button class="danger" @click="handleClear" :disabled="loading">清理旧历史（保留最近 N 条）</button>
       </div>
@@ -46,7 +42,7 @@
             <div v-for="(r, i) in record.diff_summary.slice(0, 500)" :key="i" class="diff-line" :class="r.kind">{{
               summarize(r) }}</div>
           </div>
-          <div v-if="record.diff_summary.length > 500" class="tiny muted" style="margin-top: 6px">
+          <div v-if="record.diff_summary.length > 500" class="hint" style="margin-top: var(--space-2)">
             仅显示前 500 条。完整 diff 请看下方原始 JSON。
           </div>
         </div>

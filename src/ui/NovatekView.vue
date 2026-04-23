@@ -2,36 +2,31 @@
   <div class="stack">
     <div v-if="backendMismatch" class="banner error">
       <strong>此面板不适用于当前机型</strong>
-      <span>检测到本机走 <span class="mono">{{ state.activeBackend }}</span> 后端（非独显机型）。
-        Novatek 面板仅对红米至尊系列等带独显硬件的机型有意义。</span>
+      <span class="hint">当前机型不走此后端，改动不会生效。Novatek 面板仅对带独显的机型有意义。</span>
     </div>
 
     <div class="panel">
-      <h2>Novatek<br>
-        <small>novatek_game_params + 附属列表</small>
-      </h2>
-      <div class="muted tiny">
-        仅适用于带独显 (d1 / d2) 的机型 —— 典型如红米至尊版系列。本机无 novatek 相关键时本页应显示"未下发"。
-        每条字符串为 <span class="mono">包名 _ 独显方案 A _ GPU 方案 _ 独显方案 B</span>，每段 7 个
-        <span class="mono">#</span> 字段，第三段内部以 <span class="mono">,</span> 再细分。
+      <h2>红米独显 <small>未实机验证</small></h2>
+      <div class="hint">
+        仅适用于带独显（d1 / d2）的机型，典型为红米至尊版系列。本机若未下发相关键，本页会显示为空。
       </div>
       <div class="row">
-        <label class="row" style="gap: 6px">
-          <span class="tiny muted">当前列表：</span>
+        <label class="row" style="gap: var(--space-1)">
+          <span class="hint">当前列表：</span>
           <select v-model="listKey">
-            <option value="main">novatek_game_params ({{ counts.main }})</option>
-            <option value="nonplay">novatek_non_playing_config ({{ counts.nonplay }})</option>
+            <option value="main">游戏中配置 ({{ counts.main }})</option>
+            <option value="nonplay">非游戏配置 ({{ counts.nonplay }})</option>
           </select>
         </label>
         <button class="primary" @click="addBlank">+ 新建</button>
-        <button class="ghost" @click="pasteImport">粘贴原始字符串导入</button>
+        <button class="ghost" @click="pasteImport">粘贴字符串导入</button>
         <button class="ghost" @click="quickUnlockThermal">一键温控 95/93/93/91</button>
       </div>
     </div>
 
     <div v-if="!anyNovatek" class="banner warn">
-      <strong>该设备未下发 Novatek 相关键</strong>
-      <span>可以新建条目，但除非硬件带独显否则不会实际生效。</span>
+      <strong>该设备未下发独显相关配置</strong>
+      <span class="hint">可以新建条目，但没有独显硬件时不会实际生效。</span>
     </div>
 
     <div class="twopane">
@@ -41,7 +36,7 @@
           <strong>{{ displayPkg(s) }}</strong>
           <span class="sub">{{ s }}</span>
         </button>
-        <div v-if="entries.length === 0" class="muted tiny" style="padding: 12px">（空）</div>
+        <div v-if="entries.length === 0" class="hint" style="padding: var(--space-3)">（空）</div>
       </div>
 
       <div v-if="currentParsed" class="detail stack">
@@ -63,14 +58,14 @@
         <div class="panel" style="margin: 0; background: var(--bg-elevated)">
           <div class="label">序列化结果</div>
           <div class="mono tiny" style="word-break: break-all">{{ entries[selected] }}</div>
-          <div v-if="issues.length" class="stack" style="margin-top: 8px">
+          <div v-if="issues.length" class="stack" style="margin-top: var(--space-2)">
             <div v-for="(i, k) in issues" :key="k" class="tiny" style="color: var(--warn)">
               ⚠ <span class="mono">{{ i.segment }}</span>: {{ i.message }}
             </div>
           </div>
         </div>
       </div>
-      <div v-else class="detail muted tiny">在左侧选一条。</div>
+      <div v-else class="detail hint">在左侧选一条。</div>
     </div>
 
     <div class="panel">

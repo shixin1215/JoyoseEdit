@@ -1,12 +1,10 @@
 <template>
   <div class="stack">
     <div class="panel">
-      <h2>JSON 编辑<br>
-        <small>直接改 params / rule_content</small>
-      </h2>
+      <h2>JSON 编辑 <small>直接修改底层配置</small></h2>
       <div class="row">
-        <label class="row" style="gap: 6px">
-          <span class="tiny muted">目标</span>
+        <label class="row" style="gap: var(--space-1)">
+          <span class="hint">目标</span>
           <select v-model="target">
             <option v-for="name in cloudConfigNames" :key="name" :value="'cc:' + name">
               cloud_config.{{ name }}.params
@@ -23,10 +21,10 @@
 
     <div class="panel">
       <div class="cm-shell" ref="editorRoot" />
-      <div v-if="!isValidJson" class="tiny" style="color: var(--warn); margin-top: 6px">
+      <div v-if="!isValidJson" class="tiny" style="color: var(--warn); margin-top: var(--space-2)">
         ⚠ JSON 无法解析：{{ parseError }}
       </div>
-      <div v-else class="tiny muted" style="margin-top: 6px">
+      <div v-else class="hint" style="margin-top: var(--space-2)">
         JSON 合法 · {{ codeLength }} 字符
       </div>
     </div>

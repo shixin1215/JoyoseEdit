@@ -2,20 +2,14 @@
   <div class="stack">
     <div v-if="backendMismatch" class="banner error">
       <strong>此面板不适用于当前机型</strong>
-      <span>检测到本机走 <span class="mono">{{ state.activeBackend }}</span> 后端。
-        高通 AFME/FRC/FSR 仅对骁龙 8 Elite 机型（小米 15 / 15 Pro）有效；
-        请到对应后端的面板操作，或通过 JSON 编辑直接改底层数据。</span>
+      <span class="hint">当前机型不走此后端，改动不会生效。请到对应面板操作，或通过 JSON 编辑页直接改底层数据。</span>
     </div>
 
     <div class="panel">
-      <h2>高通 GPU<br>
-        <small>frc_game_params + fisr_config</small>
-      </h2>
-      <div class="muted tiny">
-        适用于无独显的小米机型（小米 15 / 15 Pro 已知会被云控下发；小米 17 目前不下发，
-        可以通过本编辑器"无中生有"地创建条目让设备尝试启用插帧 / 超分）。
-        每条 <span class="mono">frc_game_params</span> 以下划线分隔 11 个字段：
-        帧率 4 元组 + 温控 4 元组 + 分辨率 + 插帧开关 + 超分开关。
+      <h2>小米 15 / 15 Pro 高通 GPU 插帧 <small>未实机验证</small></h2>
+      <div class="hint">
+        适用于无独显的小米机型。小米 15 / 15 Pro 会被云控下发相关配置；
+        小米 17 未下发，可通过本编辑器手动创建条目让设备尝试启用插帧 / 超分。
       </div>
     </div>
 
@@ -30,8 +24,8 @@
           <strong>{{ displayPkg(s) }}</strong>
           <span class="sub">{{ s }}</span>
         </button>
-        <div v-if="entries.length === 0" class="muted tiny" style="padding: 12px">
-          没有条目 —— 点击 "新建条目" 添加第一个。
+        <div v-if="entries.length === 0" class="hint" style="padding: var(--space-3)">
+          没有条目。点击"新建条目"添加。
         </div>
       </div>
 
@@ -69,19 +63,19 @@
 
         <div class="grid-4">
           <div class="field">
-            <label class="label">T1 (降档阈值)</label>
+            <label class="label">温控 T1 (℃)</label>
             <input type="number" step="0.1" v-model.number="currentParsed.t1" @input="rewrite" />
           </div>
           <div class="field">
-            <label class="label">T2</label>
+            <label class="label">温控 T2 (℃)</label>
             <input type="number" step="0.1" v-model.number="currentParsed.t2" @input="rewrite" />
           </div>
           <div class="field">
-            <label class="label">T3</label>
+            <label class="label">温控 T3 (℃)</label>
             <input type="number" step="0.1" v-model.number="currentParsed.t3" @input="rewrite" />
           </div>
           <div class="field">
-            <label class="label">T4 (最低)</label>
+            <label class="label">温控 T4 (℃，最低)</label>
             <input type="number" step="0.1" v-model.number="currentParsed.t4" @input="rewrite" />
           </div>
         </div>
@@ -117,7 +111,7 @@
           <div class="mono" style="font-size: 12px; word-break: break-all">
             {{ entries[selected] }}
           </div>
-          <div v-if="issues.length" class="stack" style="margin-top: 8px">
+          <div v-if="issues.length" class="stack" style="margin-top: var(--space-2)">
             <div v-for="(i, k) in issues" :key="k" class="tiny" style="color: var(--warn)">
               ⚠ <span class="mono">{{ i.field }}</span>: {{ i.message }}
             </div>
@@ -125,22 +119,22 @@
         </div>
 
         <div class="panel" style="margin: 0">
-          <h2 style="font-size: 14px">fisr_config 路由 <small>决定本游戏走 AFME / FRC / FSR</small></h2>
+          <h2 style="font-size: 14px">画质增强策略</h2>
           <div class="row">
-            <button @click="applyPreset('qualcommStandard')">小米 15 标准 (60→120)</button>
-            <button @click="applyPreset('qualcomm6090')">小米 15 星铁 (60→90)</button>
+            <button @click="applyPreset('qualcommStandard')">小米 15 标准（60→120）</button>
+            <button @click="applyPreset('qualcomm6090')">小米 15 星铁（60→90）</button>
             <button @click="applyPreset('novatekStandard')" :disabled="true" title="仅红米独显适用">Novatek</button>
-            <label class="row" style="margin-left: auto; gap: 6px">
+            <label class="row" style="margin-left: auto; gap: var(--space-1)">
               <input type="checkbox" v-model="alsoUpdateWhitelists" />
-              <span class="tiny muted">同步写入超分白名单 / 帧率白名单</span>
+              <span class="hint">同步写入超分 / 帧率白名单</span>
             </label>
           </div>
-          <table class="table" v-if="routedPolicies" style="margin-top: 8px">
+          <table class="table" v-if="routedPolicies" style="margin-top: var(--space-2)">
             <thead>
               <tr>
-                <th>feature</th>
-                <th>strategy</th>
-                <th>support_max_refresh</th>
+                <th>类型</th>
+                <th>策略</th>
+                <th>最高刷新率</th>
               </tr>
             </thead>
             <tbody>
@@ -151,11 +145,11 @@
               </tr>
             </tbody>
           </table>
-          <div v-else class="muted tiny">该包目前没有 fisr_config 路由。选一个预设一键应用。</div>
+          <div v-else class="hint">该包尚未配置画质增强策略。选一个预设一键应用。</div>
         </div>
       </div>
 
-      <div v-else class="detail muted tiny">在左侧选一条，或点击"新建条目"。</div>
+      <div v-else class="detail hint">在左侧选一条，或点击"新建条目"。</div>
     </div>
   </div>
 </template>

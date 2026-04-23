@@ -273,7 +273,7 @@ export const STRATEGY_PRESETS = {
    * and that value is what Joyose pushes to the display; with this field
    * missing the default is **60Hz**, which silently clamps FI back to the
    * original fps and the user sees no doubled frames despite strategy
-   * activation. Default `"120#120"` lets both modes push up to 120Hz.
+   * activation. Default `"60#120"` lets both modes push up to 120Hz.
    * **Only FI / FISR policies need this field** — SR is spatial upscaling
    * and `l.i.n()`'s SR branch doesn't read `support_max_refresh` at all
    * (Ultra's cloud ships `feature:SR` without it, matching this). Users on
@@ -288,7 +288,7 @@ export const STRATEGY_PRESETS = {
     supportMaxRefresh?: string;
   }): FisrPolicy[] {
     const mode = opts?.supportGameMode ?? '1#1';
-    const maxRefresh = opts?.supportMaxRefresh ?? '120#120';
+    const maxRefresh = opts?.supportMaxRefresh ?? '60#120';
     const scenes = opts?.disableScenes ?? [10004];
     return [
       { feature: 'FI',   strategy: 'MIFISR', support_game_mode: mode, support_max_refresh: maxRefresh, disable_scene_list: scenes },

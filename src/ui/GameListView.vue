@@ -1,13 +1,11 @@
 <template>
   <div class="stack">
     <div class="panel">
-      <h2>游戏列表<br>
-        <small>common_config.params.game_list / support_app</small>
-      </h2>
-      <div class="muted tiny">
-        Joyose 主要用这两个列表决定是否对该应用应用游戏策略。
-        <span class="mono">game_list</span> = 正式纳入优化的游戏；
-        <span class="mono">support_app</span> = 更宽泛的支持列表。
+      <h2>游戏列表 <small>纳入优化 / 支持</small></h2>
+      <div class="hint">
+        Joyose 根据这两个列表决定是否应用游戏策略。
+        <span class="mono">game_list</span>：正式纳入优化；
+        <span class="mono">support_app</span>：更宽泛的支持列表。
       </div>
     </div>
 

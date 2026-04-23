@@ -118,18 +118,23 @@ for (q.b bVar : this.f3249b.h2()) {              // 所有 fisr_config 组
 所有 `fisr_config.enhance_config[i].enhance_policy_config[j]` 的字段，Joyose 的
 `q.g.b()` parser 处理了哪些、哪些被实际消费：
 
-| 字段                       | Joyose 读取点               | 作用                                 | 缺失行为                                                                                          |
-| -------------------------- | --------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------- |
-| `feature`                  | `k.e.u` / `q.d.c`           | "FI"/"SR"/"FISR"/... 关键判定        | 必须                                                                                              |
-| `strategy`                 | `k.e.i` / `k.e.h`           | 绑 strategy 实例名                   | 必须                                                                                              |
-| `support_max_refresh`      | `q.d.f` → `l.i.r`           | `min(fps*2, parts[idx])` cap FI 输出 | **默认 60**，FI 倍帧被 clamp                                                                      |
-| `support_game_mode`        | `k.e.u`（带 `z2=true`）     | 2-bit mode 启用 bitmap               | 非 `X#Y` 格式 silently 忽略 mode 位                                                               |
-| `disable_scene_list`       | `k.b.r` → `l.i.n`           | 场景 ID 黑名单                       | 空 list = 从不禁用                                                                                |
-| `support_resolution_leave` | `q.b.l` → `k.e.m` → `l.i.t` | 渲染分辨率 level 白名单              | 空字段 = 允许所有分辨率；**非空但不命中当前 level 会打 `invalid render resolution` 并静默拒激活** |
-| `switch_default_status`    | `q.d.b` → `enhance.a.u`     | UI 开关初始位 bitmap `X#Y`           | 默认 0，影响首次显示                                                                              |
+| 字段                       | Joyose 读取点               | 作用                               | 缺失行为                                                                                          |
+| -------------------------- | --------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `feature`                  | `k.e.u` / `q.d.c`           | "FI"/"SR"/"FISR"/... 关键判定      | 必须                                                                                              |
+| `strategy`                 | `k.e.i` / `k.e.h`           | 绑 strategy 实例名                 | 必须                                                                                              |
+| `support_max_refresh`      | `q.d.f` → `l.i.r`           | `X#Y` 两档 **Hz 整数上限**（见下） | **默认 60**（两档都 clamp）；官方下发普遍 `60#120`                                                |
+| `support_game_mode`        | `k.e.u`（带 `z2=true`）     | 2-bit mode 启用 bitmap             | 非 `X#Y` 格式 silently 忽略 mode 位                                                               |
+| `disable_scene_list`       | `k.b.r` → `l.i.n`           | 场景 ID 黑名单                     | 空 list = 从不禁用                                                                                |
+| `support_resolution_leave` | `q.b.l` → `k.e.m` → `l.i.t` | 渲染分辨率 level 白名单            | 空字段 = 允许所有分辨率；**非空但不命中当前 level 会打 `invalid render resolution` 并静默拒激活** |
+| `switch_default_status`    | `q.d.b` → `enhance.a.u`     | UI 开关初始位 bitmap `X#Y`         | 默认 0，影响首次显示                                                                              |
 
-所有带 `X#Y` 格式的字段都按当前模式取 `parts[!("MGAME".equals(strQ)) ? 1 : 0]`，
-逻辑和 `support_game_mode` 一模一样。
+所有带 `X#Y` 格式的字段都复用 `q.d.c` 的 `split("#") + parseInt(parts[idx])`，
+按当前模式取 `parts[!("MGAME".equals(strQ)) ? 1 : 0]`（MGAME→[0]，其他→[1]）。
+**但取到的整数语义各自不同，代码复用 ≠ 语义一致**：
+
+- `support_game_mode` 当 bool bitmap：`parts[idx] == 1` 判定是否启用 feature。合法值 `0#0` / `0#1` / `1#0` / `1#1`。
+- `support_max_refresh` 当 **Hz 数值**：`l.i.r` 的 `Math.min(gameFps*2, parts[idx])` 决定 FI 输出上限。官方下发 `60#120`（均衡档 cap 60Hz → FI 相当于禁用；性能档 cap 120Hz → FI 满血）。15 系列 AFME 和 17 系列 MIFISR 同款下发；项目 `mifisrStandard()` 默认也是 `60#120`。
+- `switch_default_status` 当开关初始位整数。
 
 ### group 级字段（`enhance_config[i]`）
 
@@ -320,12 +325,12 @@ FISR 的唯一进入方式是"同时勾 FI + SR" + `isSupportSRWithFI=true`。
 [src/ui/MifisrView.vue](src/ui/MifisrView.vue) 的 fisr_config 路由面板下方有一组
 banner，触发条件和 Joyose 侧闸门一一对应：
 
-| banner                    | 级别      | 触发条件                                            | 一键修复                               |
-| ------------------------- | --------- | --------------------------------------------------- | -------------------------------------- |
-| `hasMissingMaxRefresh`    | warn      | 任一 FI / FISR policy 缺 `support_max_refresh`      | 一键填 `120#120`（144Hz 屏手动改 144） |
-| `hasNoFiSr`               | **error** | policy 列表不空但既无 FI 也无 SR（典型：只留 FISR） | 一键加 SR policy                       |
-| `hasUselessFisr`          | warn      | FISR 存在但 FI 或 SR 缺其一                         | 一键补缺的那条                         |
-| `resolutionLeavePolicies` | info      | 任一 policy 带 `support_resolution_leave`           | 无自动修复（引导去 JsonEditorView）    |
+| banner                    | 级别      | 触发条件                                            | 一键修复                              |
+| ------------------------- | --------- | --------------------------------------------------- | ------------------------------------- |
+| `hasMissingMaxRefresh`    | warn      | 任一 FI / FISR policy 缺 `support_max_refresh`      | 一键填 `60#120`（144Hz 屏手动改 144） |
+| `hasNoFiSr`               | **error** | policy 列表不空但既无 FI 也无 SR（典型：只留 FISR） | 一键加 SR policy                      |
+| `hasUselessFisr`          | warn      | FISR 存在但 FI 或 SR 缺其一                         | 一键补缺的那条                        |
+| `resolutionLeavePolicies` | info      | 任一 policy 带 `support_resolution_leave`           | 无自动修复（引导去 JsonEditorView）   |
 
 这些 banner 的逻辑都在 MifisrView script 端作为 `computed` 实现，
 banner 优先级用 `v-if / v-else-if` 控制：`hasNoFiSr` > `hasUselessFisr`。
@@ -1028,12 +1033,12 @@ adb shell "cat /proc/$PID/maps | grep -E 'libmivk|libmigl'"
 
 **别从仓库删掉**。parser 的 round-trip 测试以它们为锚。
 
-| 目录                        | 机型               | 后端            | 备注                                                                                                 |
-| --------------------------- | ------------------ | --------------- | ---------------------------------------------------------------------------------------------------- |
-| `tests/Xiaomi 17 Pro Max/`  | Xiaomi 17 Pro Max  | MIFISR          | **用户主设备**。原厂无 vendor FRC/SR flag；cloud 里 fisr_config 为空，customize_game_params 也没下发 |
-| `tests/Xiaomi 17 Ultra/`    | Xiaomi 17 Ultra    | MIFISR          | 已下发 `game_mifisr_config` 4 条 + `feature:SR` policy；vendor FRC/SR flag 都 true                   |
-| `tests/Xiaomi 15/`          | Xiaomi 15          | Qualcomm legacy | **未实测**。4 条 FRC 条目 + `feature:FI/strategy:AFME`                                               |
-| `tests/Xiaomi 15 Pro/`      | Xiaomi 15 Pro      | Qualcomm legacy | **未实测**。4 FRC + 4 MIGL 游戏                                                                      |
+| 目录                       | 机型              | 后端            | 备注                                                                                                 |
+| -------------------------- | ----------------- | --------------- | ---------------------------------------------------------------------------------------------------- |
+| `tests/Xiaomi 17 Pro Max/` | Xiaomi 17 Pro Max | MIFISR          | **用户主设备**。原厂无 vendor FRC/SR flag；cloud 里 fisr_config 为空，customize_game_params 也没下发 |
+| `tests/Xiaomi 17 Ultra/`   | Xiaomi 17 Ultra   | MIFISR          | 已下发 `game_mifisr_config` 4 条 + `feature:SR` policy；vendor FRC/SR flag 都 true                   |
+| `tests/Xiaomi 15/`         | Xiaomi 15         | Qualcomm legacy | **未实测**。4 条 FRC 条目 + `feature:FI/strategy:AFME`                                               |
+| `tests/Xiaomi 15 Pro/`     | Xiaomi 15 Pro     | Qualcomm legacy | **未实测**。4 FRC + 4 MIGL 游戏                                                                      |
 | `tests/Redmi K90 Pro Max/` | Redmi K90 Pro Max | Novatek         | **未实测**。71 条 novatek_game_params；`rules` 表空                                                  |
 
 ---
@@ -1059,38 +1064,42 @@ adb shell "cat /proc/$PID/maps | grep -E 'libmivk|libmigl'"
 
 ### MIFISR 专属
 
-8. **`mifisrStandard()` 返回 FI / SR / FISR 三条 policy，strategy 统一 `MIFISR`**
+1. **`mifisrStandard()` 返回 FI / SR / FISR 三条 policy，strategy 统一 `MIFISR`**
    —— 对齐 17 Ultra 云控原厂下发（Ultra 自己甚至只给一条 `SR+MIFISR`）。历史
    文档里"FI 必须绑 DMI / SR 必须绑 MISR 或 DPQ"的说法基于对 `a()` 的误读，已
    废弃；实际 MIFISR 一个实例就能靠 `k(pkg,status)` 扮演所有 status 码。如果
    用户在 JsonEditorView 里手动把某条 policy 的 strategy 改成 `DMI`，记得同步
    维护 `customize_game_params.dp_fi_config` 里的 `<pkg>_<src,tgt>` 条目。
-9. **`support_game_mode` 是 2 位位图 `[MGAME, TGAME]`，`1`=启用 / `0`=禁用**。
+2. **`support_game_mode` 是 2 位位图 `[MGAME, TGAME]`，`1`=启用 / `0`=禁用**。
    `mifisrStandard()` 默认 `"1#1"`（两模式都启用）；Ultra 云控原厂给 hkrpg 下发
    `"0#1"`（均衡禁、性能启）。用户 2026-04-22 实测确认此语义。
-10. **FI 和 FISR policy 的 `support_max_refresh` 必须各自配自己那一条，无 fallback**。
-    `l.i.n` 通过 `q.d.f(pkg, status)` 按 status 转 feature 名精确查自己这条
-    policy 的字段；**SR 分支不读此字段**。缺失时 Joyose 默认 60Hz，FI 倍帧被
-    `min(fps*2, 60) = 60` silently clamp 回原帧率。`mifisrStandard()` 默认写
-    `"120#120"`，MifisrView 检测缺失会弹 warn banner。
-11. **UI 端 FISR 不是独立按钮，是"同时勾 FI + SR"的升级**。
-    `isSupportEnhance` 完全不查 FISR feature（`k.e.s = o(FI) || p(SR)`），只看
-    FI 或 SR 是否在 policy 列表；只有 FISR 没 FI/SR 时**整个面板消失**。
-    `isSupportSuperResolutionWithFrameInsert = !k.e.q = !(FI∧SR∧!FISR)` 决定
-    UI 能否走到 status=4 分支。MifisrView 对这些 bad 组合有 error/warn banner。
-12. **`support_resolution_leave` 是激活前硬检查**（`l.i.t`）。policy 带此字段
-    且当前游戏渲染 level 不在白名单时，打 `invalid render resolution` 并**静默
-    拒激活**。留空 = 允许所有分辨率。MifisrView 检测到字段存在时显示 info
-    banner 引导用户。
-13. **MIFISR 不读 `dp_fi_config`**；本模块走默认 MIFISR 路径时不再自动同步
-    `customize_game_params.dp_fi_config`。`syncDpFiConfig` / `deriveDpFiValue`
-    函数仍在 MifisrView 里保留，仅供手动切到 DMI 的专家用户使用。
-14. **MIFISR 字符串包名禁止含 `_`**（`serializeMifisr` 发现会抛）。跟老 FRC 同约束。
-15. **feature 字符串大小写敏感**：必须是 `"FI"` / `"SR"` / `"FISR"`。
-16. **`support_vk` 字段只对 `com.miHoYo.hkrpg` 生效**（`k.b.isSupportEnhance`
-    和 `q.i.isSupportEnhance` 两处都对 pkg 做精确字符串匹配）。其他游戏的
-    group 不管填不填这个字段都等效无害。项目 MifisrView 对星铁高亮"★ 星铁必开"。
-17. **防云控覆盖的真正方法是 `teg-freeze`**，不是 LockView 的 DB version 锁。
+3. **FI 和 FISR policy 的 `support_max_refresh` 必须各自配自己那一条，无 fallback**。
+   `l.i.n` 通过 `q.d.f(pkg, status)` 按 status 转 feature 名精确查自己这条
+   policy 的字段；**SR 分支不读此字段**。`X#Y` 是均衡 / 性能**两档的 Hz 整数上限**
+   （`q.d.c` 走 `split("#") + parseInt(parts[idx])`，MGAME→[0] 非 MGAME→[1]），
+   `l.i.r` 做 `min(gameFps*2, supportMaxFps)` 决定最终刷新率。缺失时 Joyose 默认 60，
+   两档 FI 倍帧都被 `min(fps*2, 60) = 60` silently clamp 回原帧率。
+   `mifisrStandard()` 默认写 `"60#120"`（与 15 系列 AFME / 17 系列 MIFISR
+   官方下发一致：均衡档节能 cap 60Hz 等效禁用 FI，性能档满血 120Hz），
+   MifisrView 检测缺失会弹 warn banner。
+4. **UI 端 FISR 不是独立按钮，是"同时勾 FI + SR"的升级**。
+   `isSupportEnhance` 完全不查 FISR feature（`k.e.s = o(FI) || p(SR)`），只看
+   FI 或 SR 是否在 policy 列表；只有 FISR 没 FI/SR 时**整个面板消失**。
+   `isSupportSuperResolutionWithFrameInsert = !k.e.q = !(FI∧SR∧!FISR)` 决定
+   UI 能否走到 status=4 分支。MifisrView 对这些 bad 组合有 error/warn banner。
+5. **`support_resolution_leave` 是激活前硬检查**（`l.i.t`）。policy 带此字段
+   且当前游戏渲染 level 不在白名单时，打 `invalid render resolution` 并**静默
+   拒激活**。留空 = 允许所有分辨率。MifisrView 检测到字段存在时显示 info
+   banner 引导用户。
+6. **MIFISR 不读 `dp_fi_config`**；本模块走默认 MIFISR 路径时不再自动同步
+   `customize_game_params.dp_fi_config`。`syncDpFiConfig` / `deriveDpFiValue`
+   函数仍在 MifisrView 里保留，仅供手动切到 DMI 的专家用户使用。
+7. **MIFISR 字符串包名禁止含 `_`**（`serializeMifisr` 发现会抛）。跟老 FRC 同约束。
+8. **feature 字符串大小写敏感**：必须是 `"FI"` / `"SR"` / `"FISR"`。
+9. **`support_vk` 字段只对 `com.miHoYo.hkrpg` 生效**（`k.b.isSupportEnhance`
+   和 `q.i.isSupportEnhance` 两处都对 pkg 做精确字符串匹配）。其他游戏的
+   group 不管填不填这个字段都等效无害。项目 MifisrView 对星铁高亮"★ 星铁必开"。
+10. **防云控覆盖的真正方法是 `teg-freeze`**，不是 LockView 的 DB version 锁。
     teg SDK 比较的是 SharedPreferences 里 `pref_local_max_version`，**不读**
     `SmartP.cloud_config.version` 和 `teg_config.rules.rule_version`；且 apply
     rules 到 `teg_config.db` 时无 per-rule version 比较。LockView 里老的
@@ -1098,8 +1107,8 @@ adb shell "cat /proc/$PID/maps | grep -E 'libmivk|libmigl'"
 
 ### 骁龙 / Novatek 专属（未实测）
 
-18. **FRC 包名里禁止 `_`**（`serializeFrc` 抛）。
-19. **Novatek 温控解锁预设 = 95 / 93 / 93 / 91**（社区验证）。
+1. **FRC 包名里禁止 `_`**（`serializeFrc` 抛）。
+2. **Novatek 温控解锁预设 = 95 / 93 / 93 / 91**（社区验证）。
 
 ---
 
@@ -1130,20 +1139,15 @@ adb shell "cat /proc/$PID/maps | grep -E 'libmivk|libmigl'"
   [src/parsers/fisr-config.ts](src/parsers/fisr-config.ts) 的 `findGroupForPkg`
   只按精确包名匹配。5 台样本 DB 的 `fisr_config` 都没出现过 `"OTHER"` 组，所以
   目前不补；如果观察到云端启用 OTHER 兜底再加逻辑。
-- **FISR policy 的存在会导致开 FI 画面异常**（2026-04-23 星铁实测）：
-  只保留 `FI + SR` 两条 policy（无 FISR）时，FI 和 SR 单开都干净；加上 FISR
-  policy 变成三条后，**FI 单开 / FI+SR 合体都出 artifact，但 SR 单开仍正常**。
-  Joyose 策略层看不出差异（`running strategy is 1/2/4` 切换、
-  `bestRefreshRate: 120` 每次都一致），异常在 libmivk 侧
-  `MiVkStarRailMIFIModule` —— 它在游戏进程启动时根据 fisr_config 里是否有
-  FISR policy **分叉 FI 的 hook 注册路径**：有 FISR → FI 走"合体共享分支"
-  （motion vector 按 SR 升采样后坐标系采样）；无 FISR → FI 走独立分支。
-  单开 FI 时合体分支因为 SR 实际没在跑，读到的坐标系错位产生 artifact。
-  [src/ui/MifisrView.vue](src/ui/MifisrView.vue) 检测到三条都在时显示
-  `hasFisrBreaksFi` warn banner + 一键删除 FISR 按钮。
-  **实务建议：除非明确要体验合体模式并接受画面风险，保持 `FI + SR` 两条即可，
-  UI 会强行互斥（`isSupportSuperResolutionWithFrameInsert=false`），
-  两个勾选框分别可用且底层 FI 走独立 hook 分支。**
+- **早期曾观察到"FISR + FI + SR 三条共存会让 FI 花屏"**（2026-04-23 星铁）：
+  2026-04-24 追加实测确认，问题根因**不是 FISR policy 本身**，而是当时用的
+  `support_max_refresh="120#120"` 把均衡档也拉到 120Hz，叠加 SR / FISR 的功耗
+  与显存峰值触发驱动异常。换成官方同款 `60#120`（均衡档 cap 60Hz → FI 被
+  `min(60×2, 60)=60` 削回源帧率等效禁用；性能档 `min(60×2, 120)=120` 满血）后，
+  三条 policy 共存单开 / 合体 / 单 SR 都正常。
+  之前关于 `MiVkStarRailMIFIModule` 按 fisr_config 分叉 FI hook 的推断是对
+  libmivk .so 的臆测，没有反编译证据，已翻案。`hasFisrBreaksFi` banner 与
+  computed 已从 [src/ui/MifisrView.vue](src/ui/MifisrView.vue) 移除。
 
 ---
 
