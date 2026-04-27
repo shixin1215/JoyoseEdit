@@ -25,7 +25,7 @@
           style="padding: var(--space-2); background: var(--bg); border-radius: var(--radius-sm); margin-top: var(--space-1); overflow-x: auto">su -c "resetprop ro.vendor.gpp.frc.support true"
 su -c "resetprop ro.vendor.xiaomi.sr.support true"
 am force-stop com.miui.securitycenter</pre>
-        <span class="muted">永久生效需要另外的 KSU / Magisk 模块在开机阶段写入。</span>
+        <span class="muted">永久生效：把 JoyoseEdit 用 <span class="mono">npm run package:prop</span> 重打成带 system.prop 的 zip 重装即可（KSU / Magisk 会在开机阶段 resetprop 写入这两个 vendor flag）。</span>
       </div>
     </div>
 

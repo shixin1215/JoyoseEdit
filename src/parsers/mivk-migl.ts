@@ -123,6 +123,8 @@ export function pruneOrphanedModuleBlocks(entry: ChannelEntry): void {
 }
 
 function isLikelyModuleBlock(key: string): boolean {
-  // mifi / misr / drr / drr_static / gmem / vrs / aptssao / hsre / alr / afme / sd / mrp
-  return /^(mifi|misr|drr(_static)?|gmem|vrs|aptssao|hsre|alr|afme|sd|mrp)$/.test(key);
+  // mifi / misr / misr_tempor / drr / drr_static / gmem / vrs / aptssao / hsre / alr / afme / sd / mrp.
+  // `misr_tempor` is the Temporal SR variant (mutually exclusive with `misr`); see Star Rail
+  // hkrpg notes in CLAUDE.md.
+  return /^(mifi|misr|misr_tempor|drr(_static)?|gmem|vrs|aptssao|hsre|alr|afme|sd|mrp)$/.test(key);
 }

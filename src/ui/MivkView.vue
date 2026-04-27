@@ -15,6 +15,7 @@
           </select>
         </label>
         <button class="primary" @click="addBlank">+ 新建条目</button>
+        <button class="ghost" @click="addFromPreset">从预设</button>
       </div>
     </div>
 
@@ -129,6 +130,7 @@ import {
 import { withModule } from '@/parsers/support-module';
 import { toast } from '@/state/toast';
 import { dialog } from '@/state/dialog';
+import mivkPresets from '@/presets/mivk/index.json';
 
 const channel = ref<Channel>('mivk');
 const selected = ref(0);
@@ -250,6 +252,35 @@ function addBlock() {
   if ((currentEntry.value as any)[newBlockName.value] !== undefined) return;
   (currentEntry.value as any)[newBlockName.value] = {};
   markDirty();
+}
+
+async function addFromPreset() {
+  // Filter presets matching current channel; warn if none.
+  const eligible = mivkPresets.filter((p) => p.channel === channel.value);
+  if (eligible.length === 0) {
+    toast.warn(`没有 ${channel.value === 'mivk' ? 'MIVK' : 'MIGL'} 通道的预设`);
+    return;
+  }
+  const value = await dialog.select(
+    `从预设添加 ${channel.value === 'mivk' ? 'MIVK' : 'MIGL'} 条目`,
+    eligible.map((p, i) => ({
+      label: p.label,
+      value: String(i),
+      detail: ((p.entry as any)[cmdlinesKey(channel.value)] ?? []).join(', '),
+    })),
+    { detail: '应用后会追加一条配置；不会移除同游戏的旧条目。' },
+  );
+  if (value === null) return;
+  const preset = eligible[Number(value)];
+  if (!preset) return;
+  // Deep clone so multiple applications of the same preset don't share refs.
+  const entry = JSON.parse(JSON.stringify(preset.entry)) as ChannelEntry;
+  const gb = ensureGameBooster();
+  const all = getEntries(gb, channel.value);
+  setEntries(gb, channel.value, [...all, entry]);
+  selected.value = all.length;
+  markDirty();
+  toast.success(`已应用预设：${preset.label}`, '记得保存或推送以生效');
 }
 
 async function addBlank() {

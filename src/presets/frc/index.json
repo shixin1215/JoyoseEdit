@@ -1,6 +1,6 @@
 [
   {
-    "label": "原神 (60->120) Mi15 风格",
+    "label": "原神 (60->120)",
     "pkg": "com.miHoYo.Yuanshen",
     "string": "com.miHoYo.Yuanshen_45_90_30_60_47_46.8_43_41_0x0_1_1",
     "route": "qualcommStandard"
@@ -24,7 +24,7 @@
     "route": "qualcomm6090"
   },
   {
-    "label": "王者荣耀 (自定义 60->120)",
+    "label": "王者荣耀 (60->120)",
     "pkg": "com.tencent.tmgp.sgame",
     "string": "com.tencent.tmgp.sgame_60_120_60_120_47_46_43_41_0x0_1_0",
     "route": "qualcommStandard"

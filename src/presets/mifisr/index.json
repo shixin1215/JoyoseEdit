@@ -1,6 +1,6 @@
 [
   {
-    "label": "原神 (Ultra 同款)",
+    "label": "原神",
     "pkg": "com.miHoYo.Yuanshen",
     "string": "com.miHoYo.Yuanshen_-1#-1#45,60#47#45#44#42",
     "route": "mifisrStandard"
@@ -18,7 +18,7 @@
     "route": "mifisrStandard"
   },
   {
-    "label": "崩坏：星穹铁道 (Ultra 同款)",
+    "label": "崩坏：星穹铁道",
     "pkg": "com.miHoYo.hkrpg",
     "string": "com.miHoYo.hkrpg_-1#-1#60#47#45#44#42",
     "route": "mifisrStandard"

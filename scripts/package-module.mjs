@@ -22,6 +22,13 @@ const __dirname = path.dirname(__filename);
 const ROOT = path.resolve(__dirname, '..');
 
 async function main() {
+  // Mode is determined by which npm script invoked us (npm sets the
+  // `npm_lifecycle_event` env var to the script name). Use the dedicated
+  // `package:prop` script to bundle the vendor-flag system.prop; plain
+  // `package` skips it.
+  const lifecycle = process.env.npm_lifecycle_event ?? '';
+  const withProp = lifecycle === 'package:prop';
+
   const distDir = path.join(ROOT, 'dist');
   const moduleDir = path.join(ROOT, 'module');
   const releaseDir = path.join(ROOT, 'release');
@@ -63,6 +70,20 @@ async function main() {
   });
   await fs.writeFile(path.join(stagingDir, 'module.prop'), updatedProp, 'utf-8');
 
+  // Optional: vendor flag injector (KSU/Magisk reads system.prop at module
+  // load and resetprop's each key=value into system properties). 17 Pro Max
+  // ships without these vendor flags; without them, securitycenter's
+  // `GameBoxVisionEnhanceUtils.needInitService()` refuses to render the FI/SR
+  // controls regardless of what's in Joyose's DB. Setting them via a module
+  // is the minimum-invasive way to unblock the panel without touching the
+  // vendor partition or running a separate boot-time script.
+  if (withProp) {
+    const sysProp =
+      'ro.vendor.gpp.frc.support=true\n' +
+      'ro.vendor.xiaomi.sr.support=true\n';
+    await fs.writeFile(path.join(stagingDir, 'system.prop'), sysProp, 'utf-8');
+  }
+
   await fs.mkdir(releaseDir, { recursive: true });
   const parts = [`joyose-edit-${baseVersion}`];
   if (git.commits > 0) parts.push(String(git.commits));
@@ -76,6 +97,7 @@ async function main() {
   console.log(`  versionCode  : ${versionCode}`);
   console.log(`  git sha      : ${git.sha || '(unavailable)'}`);
   console.log(`  working tree : ${git.dirty ? 'dirty' : 'clean'}`);
+  console.log(`  system.prop  : ${withProp ? 'included (FRC + SR vendor flags)' : 'omitted'}`);
 }
 
 function readGitInfo(cwd) {
