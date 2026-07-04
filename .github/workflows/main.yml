@@ -21,14 +21,17 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22 # 顺便升级到最新的 Node 22，解决黄色的警告
+          node-version: 22
           cache: 'npm'
 
       - name: Install dependencies
         run: npm install
 
-      - name: Build and Package
-        run: npm run package
+      - name: Build Web Production
+        run: npm run build # 强行先生成 dist/ 目录
+
+      - name: Package Module
+        run: npm run package # 再执行打包逻辑
 
       - name: Upload Zip Artifact
         uses: actions/upload-artifact@v4
