@@ -1,7 +1,7 @@
 name: Build KernelSU Module
 
 on:
-  workflow_dispatch: # 允许你手动点击按钮触发编译
+  workflow_dispatch:
 
 jobs:
   build:
@@ -11,12 +11,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # 获取所有历史提交，确保 npm run package 能正确计算版本号和 commit-count
+          fetch-depth: 0 # 获取完整历史以计算 commit-count
+
+      - name: Set up Git User
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22 # 顺便升级到最新的 Node 22，解决黄色的警告
           cache: 'npm'
 
       - name: Install dependencies
